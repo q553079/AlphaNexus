@@ -1,0 +1,35 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Codex / local tooling
+.codex/
+
+# Local-first runtime data
+data/
+vault/
+
+# App dependencies and build output
+app/node_modules/
+app/out/
+app/dist/
+app/.vite/
+
+# App runtime artifacts
+app/.codex-dev.log
+app/dev-*.log
+app/dev-*.err
+app/.smoke-*.png
+
+# Native / sqlite runtime files
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Local exports and generated audits
+*.jsonl

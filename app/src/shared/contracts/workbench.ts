@@ -1,0 +1,384 @@
+import { z } from 'zod'
+import {
+  AiRunExecutionResultSchema,
+  AiProviderConfigSchema,
+  MockAiRunResultSchema,
+  RunAiAnalysisInputSchema,
+  RunMockAiAnalysisInputSchema,
+  SaveAiProviderConfigInputSchema,
+} from '@shared/ai/contracts'
+import {
+  CaptureCommandResultSchema,
+  CaptureResultSchema,
+  CaptureSessionContextInputSchema,
+  ImportScreenshotInputSchema,
+  OpenSnipCaptureInputSchema,
+  PendingSnipCaptureSchema,
+  SaveScreenshotAnnotationsInputSchema,
+  SnipCaptureSelectionInputSchema,
+} from '@shared/capture/contracts'
+import {
+  AnalysisCardSchema,
+  AnnotationSuggestionPayloadSchema,
+  AnnotationSuggestionSchema,
+  AnchorReviewSuggestionPayloadSchema,
+  AnchorReviewSuggestionSchema,
+  AiRunSchema,
+  SimilarCasePayloadSchema,
+  SimilarCaseSchema,
+} from '@shared/contracts/analysis'
+import { AnnotationSchema, ContentBlockSchema, ScreenshotSchema } from '@shared/contracts/content'
+import {
+  DisciplineScoreSchema,
+  FeedbackItemSchema,
+  MemoryProposalPayloadSchema,
+  PeriodEvaluationRollupSchema,
+  RankingExplanationPayloadSchema,
+  ReviewableMemoryActionInputSchema,
+  RuleHitSchema,
+  RuleRollupEntrySchema,
+  SetupLeaderboardEntrySchema,
+  TradeEvaluationSummarySchema,
+  TrainingInsightSchema,
+  UserProfileSchema,
+} from '@shared/contracts/evaluation'
+import { EventSchema } from '@shared/contracts/event'
+import { PeriodSchema, SessionSchema, ContractSchema } from '@shared/contracts/session'
+import { EvaluationSchema, TradeSchema } from '@shared/contracts/trade'
+import { ExportSessionMarkdownInputSchema, SessionMarkdownExportSchema } from '@shared/export/contracts'
+import { EntityIdSchema } from '@shared/contracts/base'
+import { CreateSessionInputSchema, CreateSessionResultSchema, LauncherHomePayloadSchema } from '@shared/contracts/launcher'
+import {
+  ActiveMarketAnchorsPayloadSchema,
+  AdoptMarketAnchorInputSchema,
+  ApprovedKnowledgeRuntimePayloadSchema,
+  ComposerShellSchema,
+  ComposerSuggestionPayloadSchema,
+  GetActiveMarketAnchorsInputSchema,
+  GetApprovedKnowledgeRuntimeInputSchema,
+  GetKnowledgeGroundingsInputSchema,
+  GetKnowledgeReviewDashboardInputSchema,
+  IngestKnowledgeSourceInputSchema,
+  IngestKnowledgeSourceResultSchema,
+  KnowledgeGroundingPayloadSchema,
+  KnowledgeReviewDashboardPayloadSchema,
+  MarketAnchorMutationResultSchema,
+  ReviewKnowledgeCardInputSchema,
+  ReviewKnowledgeCardResultSchema,
+  UpdateMarketAnchorStatusInputSchema,
+} from '@shared/contracts/knowledge'
+
+export const EnvironmentInfoSchema = z.object({
+  hasDeepSeekKey: z.boolean(),
+  hasOpenAiKey: z.boolean(),
+  hasAnthropicKey: z.boolean(),
+  hasCustomAiKey: z.boolean(),
+  customAiApiBaseUrl: z.string().nullable(),
+  dataDir: z.string().min(1),
+  vaultDir: z.string().min(1),
+})
+
+export const GetSessionWorkbenchInputSchema = z.object({
+  session_id: z.string().min(1).optional(),
+}).optional()
+
+export const AiRecordChainSchema = z.object({
+  ai_run: AiRunSchema,
+  analysis_card: AnalysisCardSchema.nullable(),
+  event: EventSchema.nullable(),
+  content_block: ContentBlockSchema.nullable(),
+})
+
+export const SessionWorkbenchPayloadSchema = z.object({
+  contract: ContractSchema,
+  period: PeriodSchema,
+  session: SessionSchema,
+  trades: z.array(TradeSchema),
+  events: z.array(EventSchema),
+  screenshots: z.array(ScreenshotSchema),
+  deleted_screenshots: z.array(ScreenshotSchema).default([]),
+  content_blocks: z.array(ContentBlockSchema),
+  ai_runs: z.array(AiRunSchema),
+  analysis_cards: z.array(AnalysisCardSchema),
+  deleted_ai_records: z.array(AiRecordChainSchema).default([]),
+  evaluations: z.array(EvaluationSchema),
+  panels: z.object({
+    my_realtime_view: z.string(),
+    ai_summary: z.string(),
+    trade_plan: z.string(),
+  }),
+  composer_shell: ComposerShellSchema,
+  context_memory: z.object({
+    active_anchors: ActiveMarketAnchorsPayloadSchema.shape.anchors,
+    latest_grounding_hits: KnowledgeGroundingPayloadSchema.shape.hits,
+  }),
+  suggestion_layer: z.object({
+    annotation_suggestions: z.array(AnnotationSuggestionSchema),
+    anchor_review_suggestions: z.array(AnchorReviewSuggestionSchema),
+    similar_cases: z.array(SimilarCaseSchema),
+  }),
+})
+
+export const GetTradeDetailInputSchema = z.object({
+  trade_id: z.string().min(1).optional(),
+}).optional()
+
+export const TradeDetailPayloadSchema = z.object({
+  session: SessionSchema,
+  trade: TradeSchema,
+  related_events: z.array(EventSchema),
+  analysis_cards: z.array(AnalysisCardSchema),
+  evaluation: EvaluationSchema.nullable(),
+  evaluation_summary: TradeEvaluationSummarySchema.nullable(),
+  feedback_items: z.array(FeedbackItemSchema),
+  discipline_score: DisciplineScoreSchema.nullable(),
+  rule_hits: z.array(RuleHitSchema),
+})
+
+export const GetPeriodReviewInputSchema = z.object({
+  period_id: z.string().min(1).optional(),
+}).optional()
+
+export const PeriodReviewPayloadSchema = z.object({
+  period: PeriodSchema,
+  contract: ContractSchema,
+  sessions: z.array(SessionSchema),
+  highlight_cards: z.array(AnalysisCardSchema),
+  evaluations: z.array(EvaluationSchema),
+  evaluation_rollup: PeriodEvaluationRollupSchema,
+  feedback_items: z.array(FeedbackItemSchema),
+  rule_rollup: z.array(RuleRollupEntrySchema),
+  setup_leaderboard: z.array(SetupLeaderboardEntrySchema),
+  profile_snapshot: UserProfileSchema.nullable(),
+  training_insights: z.array(TrainingInsightSchema),
+})
+
+export const SaveSessionRealtimeViewInputSchema = z.object({
+  session_id: EntityIdSchema,
+  content_md: z.string(),
+})
+
+export const SetContentBlockDeletedInputSchema = z.object({
+  block_id: EntityIdSchema,
+})
+
+export const ContentBlockMutationResultSchema = z.object({
+  block: ContentBlockSchema,
+})
+
+export const SetScreenshotDeletedInputSchema = z.object({
+  screenshot_id: EntityIdSchema,
+})
+
+export const ScreenshotMutationResultSchema = z.object({
+  screenshot: ScreenshotSchema,
+})
+
+export const SetAnnotationDeletedInputSchema = z.object({
+  annotation_id: EntityIdSchema,
+})
+
+export const AnnotationMutationResultSchema = z.object({
+  annotation: AnnotationSchema,
+})
+
+export const SetAiRecordDeletedInputSchema = z.object({
+  ai_run_id: EntityIdSchema,
+})
+
+export const AiRecordMutationResultSchema = z.object({
+  ai_record: AiRecordChainSchema,
+})
+
+export const RunAnnotationSuggestionsInputSchema = z.object({
+  session_id: EntityIdSchema,
+  screenshot_id: EntityIdSchema.nullable().optional(),
+  ai_run_id: EntityIdSchema.nullable().optional(),
+  limit: z.number().int().positive().max(12).default(6),
+})
+
+export const GetComposerSuggestionsInputSchema = z.object({
+  session_id: EntityIdSchema,
+  draft_text: z.string().optional(),
+  annotation_id: EntityIdSchema.nullable().optional(),
+  anchor_id: EntityIdSchema.nullable().optional(),
+  limit: z.number().int().positive().max(12).default(6),
+})
+
+export const GetAnchorReviewSuggestionsInputSchema = z.object({
+  session_id: EntityIdSchema.optional(),
+  ai_run_id: EntityIdSchema.optional(),
+  limit: z.number().int().positive().max(12).default(6),
+}).optional()
+
+export const GetSimilarCasesInputSchema = z.object({
+  session_id: EntityIdSchema.optional(),
+  contract_id: EntityIdSchema.optional(),
+  timeframe_scope: z.string().min(1).optional(),
+  semantic_tags: z.array(z.string().min(1)).optional(),
+  trade_context: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(12).default(6),
+}).optional()
+
+export const ApplySuggestionActionInputSchema = z.object({
+  suggestion_id: EntityIdSchema,
+  suggestion_kind: z.enum(['annotation', 'composer', 'anchor-review']),
+  action: z.enum(['keep', 'merge', 'discard']),
+  target_annotation_id: EntityIdSchema.nullable().optional(),
+  target_anchor_id: EntityIdSchema.nullable().optional(),
+})
+
+export const SuggestionActionResultSchema = z.object({
+  ok: z.literal(true),
+  suggestion_id: EntityIdSchema,
+  suggestion_kind: z.enum(['annotation', 'composer', 'anchor-review']),
+  action: z.enum(['keep', 'merge', 'discard']),
+  status: z.enum(['kept', 'merged', 'discarded']),
+  applied_effect: z.enum(['audit-only', 'created-annotation', 'merged-annotation']),
+  audit_id: EntityIdSchema,
+  screenshot_id: EntityIdSchema.nullable(),
+  annotation_id: EntityIdSchema.nullable(),
+  target_annotation_id: EntityIdSchema.nullable(),
+})
+
+export const GetUserProfileInputSchema = z.object({
+  period_id: EntityIdSchema.optional(),
+}).optional()
+
+export const GetTrainingInsightsInputSchema = z.object({
+  period_id: EntityIdSchema.optional(),
+}).optional()
+
+export const GetRankingExplanationsInputSchema = z.object({
+  session_id: EntityIdSchema.optional(),
+  target_kind: z.enum(['composer', 'feedback', 'rule-warning']).optional(),
+}).optional()
+
+export const ListMemoryProposalsInputSchema = z.object({
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+}).optional()
+
+export type EnvironmentInfo = z.infer<typeof EnvironmentInfoSchema>
+export type GetSessionWorkbenchInput = z.infer<typeof GetSessionWorkbenchInputSchema>
+export type SessionWorkbenchPayload = z.infer<typeof SessionWorkbenchPayloadSchema>
+export type GetTradeDetailInput = z.infer<typeof GetTradeDetailInputSchema>
+export type TradeDetailPayload = z.infer<typeof TradeDetailPayloadSchema>
+export type GetPeriodReviewInput = z.infer<typeof GetPeriodReviewInputSchema>
+export type PeriodReviewPayload = z.infer<typeof PeriodReviewPayloadSchema>
+export type SaveSessionRealtimeViewInput = z.infer<typeof SaveSessionRealtimeViewInputSchema>
+export type SetContentBlockDeletedInput = z.infer<typeof SetContentBlockDeletedInputSchema>
+export type ContentBlockMutationResult = z.infer<typeof ContentBlockMutationResultSchema>
+export type SetScreenshotDeletedInput = z.infer<typeof SetScreenshotDeletedInputSchema>
+export type ScreenshotMutationResult = z.infer<typeof ScreenshotMutationResultSchema>
+export type SetAnnotationDeletedInput = z.infer<typeof SetAnnotationDeletedInputSchema>
+export type AnnotationMutationResult = z.infer<typeof AnnotationMutationResultSchema>
+export type AiRecordChain = z.infer<typeof AiRecordChainSchema>
+export type SetAiRecordDeletedInput = z.infer<typeof SetAiRecordDeletedInputSchema>
+export type AiRecordMutationResult = z.infer<typeof AiRecordMutationResultSchema>
+export type RunAnnotationSuggestionsInput = z.infer<typeof RunAnnotationSuggestionsInputSchema>
+export type GetComposerSuggestionsInput = z.infer<typeof GetComposerSuggestionsInputSchema>
+export type GetAnchorReviewSuggestionsInput = z.infer<typeof GetAnchorReviewSuggestionsInputSchema>
+export type GetSimilarCasesInput = z.infer<typeof GetSimilarCasesInputSchema>
+export type ApplySuggestionActionInput = z.infer<typeof ApplySuggestionActionInputSchema>
+export type SuggestionActionResult = z.infer<typeof SuggestionActionResultSchema>
+export type GetUserProfileInput = z.infer<typeof GetUserProfileInputSchema>
+export type GetTrainingInsightsInput = z.infer<typeof GetTrainingInsightsInputSchema>
+export type GetRankingExplanationsInput = z.infer<typeof GetRankingExplanationsInputSchema>
+export type ListMemoryProposalsInput = z.infer<typeof ListMemoryProposalsInputSchema>
+export type GetKnowledgeReviewDashboardInput = z.infer<typeof GetKnowledgeReviewDashboardInputSchema>
+export type IngestKnowledgeSourceInput = z.infer<typeof IngestKnowledgeSourceInputSchema>
+export type IngestKnowledgeSourceResult = z.infer<typeof IngestKnowledgeSourceResultSchema>
+export type ReviewKnowledgeCardInput = z.infer<typeof ReviewKnowledgeCardInputSchema>
+export type ReviewKnowledgeCardResult = z.infer<typeof ReviewKnowledgeCardResultSchema>
+export type GetApprovedKnowledgeRuntimeInput = z.infer<typeof GetApprovedKnowledgeRuntimeInputSchema>
+export type ApprovedKnowledgeRuntimePayload = z.infer<typeof ApprovedKnowledgeRuntimePayloadSchema>
+export type KnowledgeReviewDashboardPayload = z.infer<typeof KnowledgeReviewDashboardPayloadSchema>
+export type GetActiveMarketAnchorsInput = z.infer<typeof GetActiveMarketAnchorsInputSchema>
+export type ActiveMarketAnchorsPayload = z.infer<typeof ActiveMarketAnchorsPayloadSchema>
+export type AdoptMarketAnchorInput = z.infer<typeof AdoptMarketAnchorInputSchema>
+export type UpdateMarketAnchorStatusInput = z.infer<typeof UpdateMarketAnchorStatusInputSchema>
+export type MarketAnchorMutationResult = z.infer<typeof MarketAnchorMutationResultSchema>
+export type GetKnowledgeGroundingsInput = z.infer<typeof GetKnowledgeGroundingsInputSchema>
+export type KnowledgeGroundingPayload = z.infer<typeof KnowledgeGroundingPayloadSchema>
+
+export type ImportScreenshotInput = z.infer<typeof ImportScreenshotInputSchema>
+export type SaveScreenshotAnnotationsInput = z.infer<typeof SaveScreenshotAnnotationsInputSchema>
+export type CaptureSessionContextInput = z.infer<typeof CaptureSessionContextInputSchema>
+export type OpenSnipCaptureInput = z.infer<typeof OpenSnipCaptureInputSchema>
+export type PendingSnipCapture = z.infer<typeof PendingSnipCaptureSchema>
+export type SnipCaptureSelectionInput = z.infer<typeof SnipCaptureSelectionInputSchema>
+export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
+export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
+export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>
+export type ExportSessionMarkdownInput = z.infer<typeof ExportSessionMarkdownInputSchema>
+
+export type AlphaNexusApi = {
+  app: {
+    ping: () => Promise<string>
+    getEnvironment: () => Promise<EnvironmentInfo>
+    initializeDatabase: () => Promise<{ ok: true }>
+  }
+  launcher: {
+    getHome: () => Promise<z.infer<typeof LauncherHomePayloadSchema>>
+    createSession: (input: z.infer<typeof CreateSessionInputSchema>) => Promise<z.infer<typeof CreateSessionResultSchema>>
+  }
+  workbench: {
+    getSession: (input?: GetSessionWorkbenchInput) => Promise<SessionWorkbenchPayload>
+    getTradeDetail: (input?: GetTradeDetailInput) => Promise<TradeDetailPayload>
+    getPeriodReview: (input?: GetPeriodReviewInput) => Promise<PeriodReviewPayload>
+    getActiveAnchors: (input?: GetActiveMarketAnchorsInput) => Promise<z.infer<typeof ActiveMarketAnchorsPayloadSchema>>
+    adoptAnchor: (input: AdoptMarketAnchorInput) => Promise<z.infer<typeof MarketAnchorMutationResultSchema>>
+    updateAnchorStatus: (input: UpdateMarketAnchorStatusInput) => Promise<z.infer<typeof MarketAnchorMutationResultSchema>>
+    getGroundings: (input?: GetKnowledgeGroundingsInput) => Promise<z.infer<typeof KnowledgeGroundingPayloadSchema>>
+    runAnnotationSuggestions: (input: RunAnnotationSuggestionsInput) => Promise<z.infer<typeof AnnotationSuggestionPayloadSchema>>
+    getComposerSuggestions: (input: GetComposerSuggestionsInput) => Promise<z.infer<typeof ComposerSuggestionPayloadSchema>>
+    getAnchorReviewSuggestions: (input?: GetAnchorReviewSuggestionsInput) => Promise<z.infer<typeof AnchorReviewSuggestionPayloadSchema>>
+    getSimilarCases: (input?: GetSimilarCasesInput) => Promise<z.infer<typeof SimilarCasePayloadSchema>>
+    applySuggestionAction: (input: ApplySuggestionActionInput) => Promise<z.infer<typeof SuggestionActionResultSchema>>
+    getUserProfile: (input?: GetUserProfileInput) => Promise<z.infer<typeof UserProfileSchema>>
+    getTrainingInsights: (input?: GetTrainingInsightsInput) => Promise<z.infer<typeof TrainingInsightSchema>[]>
+    getRankingExplanations: (input?: GetRankingExplanationsInput) => Promise<z.infer<typeof RankingExplanationPayloadSchema>>
+    listMemoryProposals: (input?: ListMemoryProposalsInput) => Promise<z.infer<typeof MemoryProposalPayloadSchema>>
+    approveMemoryProposal: (input: z.infer<typeof ReviewableMemoryActionInputSchema>) => Promise<z.infer<typeof MemoryProposalPayloadSchema>>
+    rejectMemoryProposal: (input: z.infer<typeof ReviewableMemoryActionInputSchema>) => Promise<z.infer<typeof MemoryProposalPayloadSchema>>
+    saveRealtimeView: (input: SaveSessionRealtimeViewInput) => Promise<ContentBlockMutationResult>
+    deleteContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>
+    restoreContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>
+    deleteScreenshot: (input: SetScreenshotDeletedInput) => Promise<ScreenshotMutationResult>
+    restoreScreenshot: (input: SetScreenshotDeletedInput) => Promise<ScreenshotMutationResult>
+    deleteAnnotation: (input: SetAnnotationDeletedInput) => Promise<AnnotationMutationResult>
+    restoreAnnotation: (input: SetAnnotationDeletedInput) => Promise<AnnotationMutationResult>
+    deleteAiRecord: (input: SetAiRecordDeletedInput) => Promise<AiRecordMutationResult>
+    restoreAiRecord: (input: SetAiRecordDeletedInput) => Promise<AiRecordMutationResult>
+  }
+  capture: {
+    importImage: (input: ImportScreenshotInput) => Promise<z.infer<typeof CaptureResultSchema>>
+    saveAnnotations: (input: SaveScreenshotAnnotationsInput) => Promise<z.infer<typeof CaptureResultSchema>>
+    setSessionContext: (input: CaptureSessionContextInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
+    openSnipCapture: (input?: OpenSnipCaptureInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
+    getPendingSnip: () => Promise<z.infer<typeof PendingSnipCaptureSchema> | null>
+    copyPendingSnip: (input: SnipCaptureSelectionInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
+    savePendingSnip: (input: SnipCaptureSelectionInput) => Promise<z.infer<typeof CaptureResultSchema>>
+    cancelPendingSnip: () => Promise<z.infer<typeof CaptureCommandResultSchema>>
+    onSaved: (listener: (result: z.infer<typeof CaptureResultSchema>) => void) => () => void
+  }
+  ai: {
+    listProviders: () => Promise<z.infer<typeof AiProviderConfigSchema>[]>
+    saveProviderConfig: (input: SaveAiProviderConfigInput) => Promise<z.infer<typeof AiProviderConfigSchema>[]>
+    runAnalysis: (input: RunAiAnalysisInput) => Promise<z.infer<typeof AiRunExecutionResultSchema>>
+    runMockAnalysis: (input: RunMockAiAnalysisInput) => Promise<z.infer<typeof MockAiRunResultSchema>>
+  }
+  knowledge: {
+    getReviewDashboard: (input?: GetKnowledgeReviewDashboardInput) => Promise<z.infer<typeof KnowledgeReviewDashboardPayloadSchema>>
+    ingestSource: (input: IngestKnowledgeSourceInput) => Promise<z.infer<typeof KnowledgeReviewDashboardPayloadSchema>>
+    reviewCard: (input: ReviewKnowledgeCardInput) => Promise<z.infer<typeof KnowledgeReviewDashboardPayloadSchema>>
+    getApprovedRuntime: (input?: GetApprovedKnowledgeRuntimeInput) => Promise<z.infer<typeof ApprovedKnowledgeRuntimePayloadSchema>>
+    getActiveAnchors: (input?: GetActiveMarketAnchorsInput) => Promise<z.infer<typeof ActiveMarketAnchorsPayloadSchema>>
+    adoptAnchor: (input: AdoptMarketAnchorInput) => Promise<z.infer<typeof MarketAnchorMutationResultSchema>>
+    updateAnchorStatus: (input: UpdateMarketAnchorStatusInput) => Promise<z.infer<typeof MarketAnchorMutationResultSchema>>
+    getGroundings: (input?: GetKnowledgeGroundingsInput) => Promise<z.infer<typeof KnowledgeGroundingPayloadSchema>>
+  }
+  export: {
+    sessionMarkdown: (input: ExportSessionMarkdownInput) => Promise<z.infer<typeof SessionMarkdownExportSchema>>
+  }
+}

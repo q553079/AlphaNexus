@@ -1,0 +1,406 @@
+import type Database from 'better-sqlite3'
+
+type Migration = {
+  id: number
+  name: string
+  sql: string
+}
+
+const migrations: Migration[] = [
+  {
+    id: 1,
+    name: 'create-core-tables',
+    sql: `
+      CREATE TABLE IF NOT EXISTS contracts (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        name TEXT NOT NULL,
+        venue TEXT NOT NULL,
+        asset_class TEXT NOT NULL,
+        quote_currency TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS periods (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        start_at TEXT NOT NULL,
+        end_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        contract_id TEXT NOT NULL,
+        period_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        market_bias TEXT NOT NULL,
+        tags_json TEXT NOT NULL,
+        my_realtime_view TEXT NOT NULL,
+        trade_plan_md TEXT NOT NULL,
+        context_focus TEXT NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (contract_id) REFERENCES contracts(id),
+        FOREIGN KEY (period_id) REFERENCES periods(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS trades (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        status TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        entry_price REAL NOT NULL,
+        stop_loss REAL NOT NULL,
+        take_profit REAL NOT NULL,
+        exit_price REAL,
+        pnl_r REAL,
+        opened_at TEXT NOT NULL,
+        closed_at TEXT,
+        thesis TEXT NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        trade_id TEXT,
+        event_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        author_kind TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        content_block_ids_json TEXT NOT NULL,
+        screenshot_id TEXT,
+        ai_run_id TEXT,
+        deleted_at TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS screenshots (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        event_id TEXT,
+        kind TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        asset_url TEXT NOT NULL,
+        caption TEXT,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS annotations (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        screenshot_id TEXT NOT NULL,
+        shape TEXT NOT NULL,
+        label TEXT NOT NULL,
+        color TEXT NOT NULL,
+        x1 REAL NOT NULL,
+        y1 REAL NOT NULL,
+        x2 REAL NOT NULL,
+        y2 REAL NOT NULL,
+        text TEXT,
+        stroke_width REAL NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (screenshot_id) REFERENCES screenshots(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS content_blocks (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        event_id TEXT,
+        block_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content_md TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        context_type TEXT NOT NULL,
+        context_id TEXT NOT NULL,
+        soft_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_runs (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        event_id TEXT,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        prompt_kind TEXT NOT NULL,
+        input_summary TEXT NOT NULL,
+        finished_at TEXT,
+        deleted_at TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS analysis_cards (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        ai_run_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        bias TEXT NOT NULL,
+        confidence_pct REAL NOT NULL,
+        reversal_probability_pct REAL NOT NULL,
+        entry_zone TEXT NOT NULL,
+        stop_loss TEXT NOT NULL,
+        take_profit TEXT NOT NULL,
+        invalidation TEXT NOT NULL,
+        summary_short TEXT NOT NULL,
+        deep_analysis_md TEXT NOT NULL,
+        supporting_factors_json TEXT NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (ai_run_id) REFERENCES ai_runs(id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS evaluations (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        trade_id TEXT NOT NULL,
+        score REAL NOT NULL,
+        note_md TEXT NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id),
+        FOREIGN KEY (trade_id) REFERENCES trades(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS migrations (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    id: 2,
+    name: 'create-knowledge-pipeline-tables',
+    sql: `
+      CREATE TABLE IF NOT EXISTS knowledge_sources (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT,
+        language TEXT NOT NULL,
+        content_md TEXT NOT NULL,
+        checksum TEXT,
+        deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_import_jobs (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        job_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        input_snapshot_json TEXT NOT NULL,
+        output_summary TEXT NOT NULL,
+        finished_at TEXT,
+        deleted_at TEXT,
+        FOREIGN KEY (source_id) REFERENCES knowledge_sources(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_fragments (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        sequence_no INTEGER NOT NULL,
+        chapter_label TEXT,
+        page_from INTEGER,
+        page_to INTEGER,
+        content_md TEXT NOT NULL,
+        tokens_estimate INTEGER NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (source_id) REFERENCES knowledge_sources(id),
+        FOREIGN KEY (job_id) REFERENCES knowledge_import_jobs(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_cards (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        fragment_id TEXT NOT NULL,
+        card_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        content_md TEXT NOT NULL,
+        trigger_conditions_md TEXT NOT NULL,
+        invalidation_md TEXT NOT NULL,
+        risk_rule_md TEXT NOT NULL,
+        contract_scope TEXT NOT NULL,
+        timeframe_scope TEXT NOT NULL,
+        tags_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        deleted_at TEXT,
+        FOREIGN KEY (source_id) REFERENCES knowledge_sources(id),
+        FOREIGN KEY (fragment_id) REFERENCES knowledge_fragments(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_reviews (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        knowledge_card_id TEXT NOT NULL,
+        review_action TEXT NOT NULL,
+        review_note_md TEXT NOT NULL,
+        reviewed_by TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        FOREIGN KEY (knowledge_card_id) REFERENCES knowledge_cards(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_groundings (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        knowledge_card_id TEXT NOT NULL,
+        session_id TEXT,
+        trade_id TEXT,
+        screenshot_id TEXT,
+        annotation_id TEXT,
+        anchor_id TEXT,
+        ai_run_id TEXT,
+        match_reason_md TEXT NOT NULL,
+        relevance_score REAL NOT NULL,
+        FOREIGN KEY (knowledge_card_id) REFERENCES knowledge_cards(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_knowledge_cards_status ON knowledge_cards(status);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_cards_scope ON knowledge_cards(contract_scope, timeframe_scope);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_fragments_source ON knowledge_fragments(source_id, sequence_no);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_reviews_card ON knowledge_reviews(knowledge_card_id, created_at);
+    `,
+  },
+  {
+    id: 3,
+    name: 'create-market-anchor-tables',
+    sql: `
+      CREATE TABLE IF NOT EXISTS market_anchors (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        contract_id TEXT NOT NULL,
+        session_id TEXT,
+        trade_id TEXT,
+        source_annotation_id TEXT,
+        source_annotation_label TEXT,
+        source_screenshot_id TEXT,
+        title TEXT NOT NULL,
+        semantic_type TEXT,
+        timeframe_scope TEXT,
+        price_low REAL,
+        price_high REAL,
+        thesis_md TEXT NOT NULL,
+        invalidation_rule_md TEXT NOT NULL,
+        status TEXT NOT NULL,
+        carry_forward INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT,
+        FOREIGN KEY (contract_id) REFERENCES contracts(id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id),
+        FOREIGN KEY (trade_id) REFERENCES trades(id),
+        FOREIGN KEY (source_annotation_id) REFERENCES annotations(id),
+        FOREIGN KEY (source_screenshot_id) REFERENCES screenshots(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS market_anchor_status_history (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        anchor_id TEXT NOT NULL,
+        previous_status TEXT,
+        next_status TEXT NOT NULL,
+        reason_md TEXT NOT NULL,
+        changed_by TEXT,
+        FOREIGN KEY (anchor_id) REFERENCES market_anchors(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_market_anchors_scope
+      ON market_anchors(contract_id, session_id, trade_id, status, updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_market_anchors_annotation
+      ON market_anchors(source_annotation_id, deleted_at);
+
+      CREATE INDEX IF NOT EXISTS idx_market_anchor_status_history_anchor
+      ON market_anchor_status_history(anchor_id, created_at DESC);
+    `,
+  },
+  {
+    id: 4,
+    name: 'add-analysis-card-trade-granularity',
+    sql: `
+      ALTER TABLE analysis_cards ADD COLUMN trade_id TEXT;
+
+      UPDATE analysis_cards
+      SET trade_id = (
+        SELECT ev.trade_id
+        FROM ai_runs ar
+        LEFT JOIN events ev ON ev.id = ar.event_id
+        WHERE ar.id = analysis_cards.ai_run_id
+        LIMIT 1
+      )
+      WHERE trade_id IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_analysis_cards_trade_created
+      ON analysis_cards(trade_id, created_at DESC);
+    `,
+  },
+]
+
+export const applyMigrations = (db: Database.Database) => {
+  db.exec('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)')
+  const applied = new Set<number>(
+    db.prepare('SELECT id FROM migrations ORDER BY id ASC').all().map((row) => Number((row as { id: number }).id)),
+  )
+
+  for (const migration of migrations) {
+    if (applied.has(migration.id)) {
+      continue
+    }
+
+    db.transaction(() => {
+      db.exec(migration.sql)
+      db.prepare('INSERT INTO migrations (id, name, applied_at) VALUES (?, ?, ?)').run(
+        migration.id,
+        migration.name,
+        new Date().toISOString(),
+      )
+    })()
+  }
+}

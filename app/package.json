@@ -1,0 +1,41 @@
+{
+  "name": "alpha-nexus-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AlphaNexus local-first desktop trading workbench bootstrap",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:fresh": "npm run rebuild:native && electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:regression": "set ELECTRON_RUN_AS_NODE=1&& electron --experimental-strip-types --test --loader ./scripts/ts-path-loader.mjs ./scripts/regression-checks.test.mjs",
+    "verify:regression": "npm run test:regression && npm run typecheck && npm run build",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "npm run rebuild:native"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "electron": "^41.0.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.8.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
