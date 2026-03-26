@@ -2,14 +2,15 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getDatabase } from '@main/db/connection'
-import { getTradeDetail } from '@main/domain/workbench-service'
+import { loadTradeDetail } from '@main/db/repositories/workbench-repository'
 import type { RuleHit, RuleRollupEntry } from '@shared/contracts/evaluation'
+import type { TradeDetailPayload } from '@shared/contracts/workbench'
 
 type RuleConfig = {
   disabled_rule_ids?: string[]
 }
 
-type TradeRuleContext = Awaited<ReturnType<typeof getTradeDetail>>
+type TradeRuleContext = TradeDetailPayload
 
 type RuleDefinition = {
   id: string
@@ -138,8 +139,9 @@ const listActiveRules = async(paths: LocalFirstPaths) => {
 }
 
 export const getTradeRuleHits = async(paths: LocalFirstPaths, tradeId: string): Promise<RuleHit[]> => {
+  const db = await getDatabase(paths)
   const [detail, activeRules] = await Promise.all([
-    getTradeDetail(paths, { trade_id: tradeId }),
+    Promise.resolve(loadTradeDetail(db, tradeId)),
     listActiveRules(paths),
   ])
 

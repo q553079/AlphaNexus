@@ -4,10 +4,12 @@ import type { DraftAnnotation } from '@app/features/annotation/annotation-types'
 import { AnchorAnnotationInspector } from '@app/features/anchors'
 import type { AnnotationInspectorItem } from '@app/features/anchors'
 import { CapturePanel } from '@app/features/capture/CapturePanel'
+import { ContentBlockTargetManager } from '@app/features/context/ContentBlockTargetManager'
 import { AnnotationSuggestionsPanel } from '@app/features/suggestions'
 import type { AnnotationSuggestionView } from '@app/features/suggestions'
 import { translateContextType } from '@app/ui/display-text'
 import type { AnnotationRecord, ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
+import type { CurrentTargetOption, CurrentTargetOptionsPayload } from '@shared/contracts/workbench'
 
 type SessionCanvasColumnProps = {
   activeContentBlocks: ContentBlockRecord[]
@@ -24,6 +26,7 @@ type SessionCanvasColumnProps = {
   onAnnotationSuggestionAction: (suggestionId: string, action: 'keep' | 'merge' | 'discard') => void
   onDeleteAnnotation: (annotationId: string) => void
   onDeleteBlock: (block: ContentBlockRecord) => void
+  onMoveContentBlock: (block: ContentBlockRecord, option: CurrentTargetOption) => void
   onDeleteScreenshot: (screenshotId: string) => void
   onDraftAnnotationsChange: (annotations: DraftAnnotation[]) => void
   onImportScreenshot: () => void
@@ -32,6 +35,7 @@ type SessionCanvasColumnProps = {
   onRestoreBlock: (block: ContentBlockRecord) => void
   onRestoreScreenshot: (screenshotId: string) => void
   onSaveAnnotations: () => void
+  moveTargetOptions: CurrentTargetOptionsPayload | null
   selectedScreenshot: ScreenshotRecord | null
 }
 
@@ -50,6 +54,7 @@ export const SessionCanvasColumn = ({
   onAnnotationSuggestionAction,
   onDeleteAnnotation,
   onDeleteBlock,
+  onMoveContentBlock,
   onDeleteScreenshot,
   onDraftAnnotationsChange,
   onImportScreenshot,
@@ -58,6 +63,7 @@ export const SessionCanvasColumn = ({
   onRestoreBlock,
   onRestoreScreenshot,
   onSaveAnnotations,
+  moveTargetOptions,
   selectedScreenshot,
 }: SessionCanvasColumnProps) => (
     <section className="session-workbench__column session-workbench__column--canvas">
@@ -187,6 +193,12 @@ export const SessionCanvasColumn = ({
                   </button>
                 </div>
                 <p className="workbench-text">{block.content_md}</p>
+                <ContentBlockTargetManager
+                  block={block}
+                  busy={busy}
+                  onMove={onMoveContentBlock}
+                  targetPayload={moveTargetOptions}
+                />
               </article>
             ))
           ) : (

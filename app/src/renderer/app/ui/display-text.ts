@@ -5,6 +5,8 @@ import type { SessionBucket } from '@shared/contracts/launcher'
 import type { SessionRecord } from '@shared/contracts/session'
 import type { TradeRecord } from '@shared/contracts/trade'
 
+export type EventStreamFilterKey = 'all' | 'screenshot' | 'ai' | 'trade' | 'review'
+
 type CaptureKind = ScreenshotRecord['kind']
 type AnnotationShape = ScreenshotRecord['annotations'][number]['shape']
 
@@ -48,6 +50,8 @@ const eventTypeLabels: Record<EventRecord['event_type'], string> = {
   observation: '观察',
   thesis: '观点',
   trade_open: '开仓',
+  trade_add: '加仓',
+  trade_reduce: '减仓',
   trade_close: '平仓',
   screenshot: '截图',
   ai_summary: 'AI 摘要',
@@ -64,6 +68,7 @@ const contextTypeLabels: Record<ContentBlockRecord['context_type'], string> = {
   session: 'Session',
   event: '事件',
   trade: '交易',
+  period: '周期',
 }
 
 const annotationShapeLabels: Record<AnnotationShape, string> = {
@@ -79,6 +84,14 @@ const sessionBucketLabels: Record<SessionBucket, string> = {
   pm: '下午',
   night: '夜盘',
   custom: '自定义',
+}
+
+const eventStreamFilterLabels: Record<EventStreamFilterKey, string> = {
+  all: 'All',
+  screenshot: 'Screenshot',
+  ai: 'AI',
+  trade: 'Trade',
+  review: 'Review',
 }
 
 export const formatDateTime = (value: string) => dateTimeFormatter.format(new Date(value))
@@ -97,6 +110,8 @@ export const translateTradeStatus = (status: TradeRecord['status']) => tradeStat
 
 export const translateEventType = (eventType: EventRecord['event_type']) => eventTypeLabels[eventType] ?? eventType
 
+export const translateEventStreamFilter = (filter: EventStreamFilterKey) => eventStreamFilterLabels[filter] ?? filter
+
 export const translateCaptureKind = (kind: CaptureKind) => captureKindLabels[kind] ?? kind
 
 export const translateContextType = (contextType: ContentBlockRecord['context_type']) => contextTypeLabels[contextType] ?? contextType
@@ -104,3 +119,5 @@ export const translateContextType = (contextType: ContentBlockRecord['context_ty
 export const translateAnnotationShape = (shape: AnnotationShape) => annotationShapeLabels[shape] ?? shape
 
 export const translateSessionBucket = (bucket: SessionBucket) => sessionBucketLabels[bucket] ?? bucket
+
+export const formatTradeBadgeLabel = (trade: TradeRecord) => `${trade.symbol} ${translateTradeSide(trade.side)}`

@@ -10,10 +10,13 @@ import {
 import {
   CaptureCommandResultSchema,
   CaptureResultSchema,
+  CaptureTargetContextInputSchema,
   CaptureSessionContextInputSchema,
   ImportScreenshotInputSchema,
   OpenSnipCaptureInputSchema,
   PendingSnipCaptureSchema,
+  SavePendingSnipInputSchema,
+  SavePendingSnipResultSchema,
   SaveScreenshotAnnotationsInputSchema,
   SnipCaptureSelectionInputSchema,
 } from '@shared/capture/contracts'
@@ -27,7 +30,7 @@ import {
   SimilarCasePayloadSchema,
   SimilarCaseSchema,
 } from '@shared/contracts/analysis'
-import { AnnotationSchema, ContentBlockSchema, ScreenshotSchema } from '@shared/contracts/content'
+import { AnnotationSchema, ContentBlockMoveAuditSchema, ContentBlockSchema, MovableContentContextTypeSchema, ScreenshotSchema } from '@shared/contracts/content'
 import {
   DisciplineScoreSchema,
   FeedbackItemSchema,
@@ -48,6 +51,22 @@ import { EvaluationSchema, TradeSchema } from '@shared/contracts/trade'
 import { ExportSessionMarkdownInputSchema, SessionMarkdownExportSchema } from '@shared/export/contracts'
 import { EntityIdSchema } from '@shared/contracts/base'
 import { CreateSessionInputSchema, CreateSessionResultSchema, LauncherHomePayloadSchema } from '@shared/contracts/launcher'
+import {
+  AddToTradeInputSchema,
+  CloseTradeInputSchema,
+  OpenTradeInputSchema,
+  ReduceTradeInputSchema,
+  TradeMutationResultSchema,
+} from '@shared/contracts/workbench-trade'
+import {
+  CurrentContextSchema,
+  CurrentTargetOptionSchema,
+  CurrentTargetOptionsPayloadSchema,
+  GetCurrentContextInputSchema,
+  ListTargetOptionsInputSchema,
+  SetCurrentContextInputSchema,
+  TargetOptionGroupsSchema,
+} from '@shared/contracts/current-context'
 import {
   ActiveMarketAnchorsPayloadSchema,
   AdoptMarketAnchorInputSchema,
@@ -117,17 +136,59 @@ export const SessionWorkbenchPayloadSchema = z.object({
     anchor_review_suggestions: z.array(AnchorReviewSuggestionSchema),
     similar_cases: z.array(SimilarCaseSchema),
   }),
+  current_context: CurrentContextSchema,
+  target_options: z.array(CurrentTargetOptionSchema),
+  target_option_groups: TargetOptionGroupsSchema.default({
+    current: [],
+    recent: [],
+    history: [],
+    previous_period_trades: [],
+  }),
 })
 
 export const GetTradeDetailInputSchema = z.object({
   trade_id: z.string().min(1).optional(),
 }).optional()
 
+export const TradeDetailInsightToneSchema = z.enum(['neutral', 'positive', 'warning', 'critical'])
+
+export const TradeDetailInsightItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string(),
+  evidence: z.array(z.string()).default([]),
+  tone: TradeDetailInsightToneSchema.default('neutral'),
+})
+
+export const TradeDetailReviewSectionsSchema = z.object({
+  deviation_analysis: z.array(TradeDetailInsightItemSchema).default([]),
+  result_assessment: z.array(TradeDetailInsightItemSchema).default([]),
+  next_improvements: z.array(TradeDetailInsightItemSchema).default([]),
+})
+
 export const TradeDetailPayloadSchema = z.object({
   session: SessionSchema,
   trade: TradeSchema,
   related_events: z.array(EventSchema),
   analysis_cards: z.array(AnalysisCardSchema),
+  latest_analysis_card: AnalysisCardSchema.nullable(),
+  screenshots: z.array(ScreenshotSchema).default([]),
+  setup_screenshot: ScreenshotSchema.nullable(),
+  setup_screenshots: z.array(ScreenshotSchema).default([]),
+  manage_screenshots: z.array(ScreenshotSchema).default([]),
+  exit_screenshot: ScreenshotSchema.nullable(),
+  exit_screenshots: z.array(ScreenshotSchema).default([]),
+  content_blocks: z.array(ContentBlockSchema).default([]),
+  original_plan_blocks: z.array(ContentBlockSchema).default([]),
+  linked_ai_cards: z.array(AnalysisCardSchema).default([]),
+  execution_events: z.array(EventSchema).default([]),
+  review_blocks: z.array(ContentBlockSchema).default([]),
+  review_draft_block: ContentBlockSchema.nullable(),
+  review_sections: TradeDetailReviewSectionsSchema.default({
+    deviation_analysis: [],
+    result_assessment: [],
+    next_improvements: [],
+  }),
   evaluation: EvaluationSchema.nullable(),
   evaluation_summary: TradeEvaluationSummarySchema.nullable(),
   feedback_items: z.array(FeedbackItemSchema),
@@ -145,6 +206,7 @@ export const PeriodReviewPayloadSchema = z.object({
   sessions: z.array(SessionSchema),
   highlight_cards: z.array(AnalysisCardSchema),
   evaluations: z.array(EvaluationSchema),
+  content_blocks: z.array(ContentBlockSchema).default([]),
   evaluation_rollup: PeriodEvaluationRollupSchema,
   feedback_items: z.array(FeedbackItemSchema),
   rule_rollup: z.array(RuleRollupEntrySchema),
@@ -155,8 +217,28 @@ export const PeriodReviewPayloadSchema = z.object({
 
 export const SaveSessionRealtimeViewInputSchema = z.object({
   session_id: EntityIdSchema,
+  trade_id: EntityIdSchema.nullable().optional(),
   content_md: z.string(),
 })
+
+export {
+  CurrentContextSchema,
+  CurrentTargetOptionSchema,
+  CurrentTargetOptionsPayloadSchema,
+  GetCurrentContextInputSchema,
+  ListTargetOptionsInputSchema,
+  SetCurrentContextInputSchema,
+  resolveTradeForCurrentContext,
+} from '@shared/contracts/current-context'
+export {
+  AddToTradeInputSchema,
+  CloseTradeInputSchema,
+  OpenTradeInputSchema,
+  ReduceTradeInputSchema,
+  TradeMutationResultSchema,
+  selectCurrentTrade,
+  selectLatestTrade,
+} from '@shared/contracts/workbench-trade'
 
 export const SetContentBlockDeletedInputSchema = z.object({
   block_id: EntityIdSchema,
@@ -164,6 +246,19 @@ export const SetContentBlockDeletedInputSchema = z.object({
 
 export const ContentBlockMutationResultSchema = z.object({
   block: ContentBlockSchema,
+})
+
+export const MoveContentBlockInputSchema = z.object({
+  block_id: EntityIdSchema,
+  target_kind: MovableContentContextTypeSchema,
+  session_id: EntityIdSchema,
+  period_id: EntityIdSchema.optional(),
+  trade_id: EntityIdSchema.nullable().optional(),
+})
+
+export const ContentBlockMoveResultSchema = z.object({
+  block: ContentBlockSchema,
+  move_audit: ContentBlockMoveAuditSchema,
 })
 
 export const SetScreenshotDeletedInputSchema = z.object({
@@ -262,12 +357,28 @@ export type EnvironmentInfo = z.infer<typeof EnvironmentInfoSchema>
 export type GetSessionWorkbenchInput = z.infer<typeof GetSessionWorkbenchInputSchema>
 export type SessionWorkbenchPayload = z.infer<typeof SessionWorkbenchPayloadSchema>
 export type GetTradeDetailInput = z.infer<typeof GetTradeDetailInputSchema>
+export type TradeDetailInsightItem = z.infer<typeof TradeDetailInsightItemSchema>
+export type TradeDetailReviewSections = z.infer<typeof TradeDetailReviewSectionsSchema>
 export type TradeDetailPayload = z.infer<typeof TradeDetailPayloadSchema>
 export type GetPeriodReviewInput = z.infer<typeof GetPeriodReviewInputSchema>
 export type PeriodReviewPayload = z.infer<typeof PeriodReviewPayloadSchema>
 export type SaveSessionRealtimeViewInput = z.infer<typeof SaveSessionRealtimeViewInputSchema>
+export type GetCurrentContextInput = z.infer<typeof GetCurrentContextInputSchema>
+export type SetCurrentContextInput = z.infer<typeof SetCurrentContextInputSchema>
+export type ListTargetOptionsInput = z.infer<typeof ListTargetOptionsInputSchema>
+export type CurrentContext = z.infer<typeof CurrentContextSchema>
+export type CurrentTargetOption = z.infer<typeof CurrentTargetOptionSchema>
+export type CurrentTargetOptionsPayload = z.infer<typeof CurrentTargetOptionsPayloadSchema>
+export type TargetOptionGroups = z.infer<typeof TargetOptionGroupsSchema>
+export type OpenTradeInput = z.infer<typeof OpenTradeInputSchema>
+export type AddToTradeInput = z.infer<typeof AddToTradeInputSchema>
+export type ReduceTradeInput = z.infer<typeof ReduceTradeInputSchema>
+export type CloseTradeInput = z.infer<typeof CloseTradeInputSchema>
+export type TradeMutationResult = z.infer<typeof TradeMutationResultSchema>
 export type SetContentBlockDeletedInput = z.infer<typeof SetContentBlockDeletedInputSchema>
 export type ContentBlockMutationResult = z.infer<typeof ContentBlockMutationResultSchema>
+export type MoveContentBlockInput = z.infer<typeof MoveContentBlockInputSchema>
+export type ContentBlockMoveResult = z.infer<typeof ContentBlockMoveResultSchema>
 export type SetScreenshotDeletedInput = z.infer<typeof SetScreenshotDeletedInputSchema>
 export type ScreenshotMutationResult = z.infer<typeof ScreenshotMutationResultSchema>
 export type SetAnnotationDeletedInput = z.infer<typeof SetAnnotationDeletedInputSchema>
@@ -304,9 +415,11 @@ export type KnowledgeGroundingPayload = z.infer<typeof KnowledgeGroundingPayload
 export type ImportScreenshotInput = z.infer<typeof ImportScreenshotInputSchema>
 export type SaveScreenshotAnnotationsInput = z.infer<typeof SaveScreenshotAnnotationsInputSchema>
 export type CaptureSessionContextInput = z.infer<typeof CaptureSessionContextInputSchema>
+export type CaptureTargetContextInput = z.infer<typeof CaptureTargetContextInputSchema>
 export type OpenSnipCaptureInput = z.infer<typeof OpenSnipCaptureInputSchema>
 export type PendingSnipCapture = z.infer<typeof PendingSnipCaptureSchema>
 export type SnipCaptureSelectionInput = z.infer<typeof SnipCaptureSelectionInputSchema>
+export type SavePendingSnipInput = z.infer<typeof SavePendingSnipInputSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
 export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>
@@ -341,7 +454,15 @@ export type AlphaNexusApi = {
     listMemoryProposals: (input?: ListMemoryProposalsInput) => Promise<z.infer<typeof MemoryProposalPayloadSchema>>
     approveMemoryProposal: (input: z.infer<typeof ReviewableMemoryActionInputSchema>) => Promise<z.infer<typeof MemoryProposalPayloadSchema>>
     rejectMemoryProposal: (input: z.infer<typeof ReviewableMemoryActionInputSchema>) => Promise<z.infer<typeof MemoryProposalPayloadSchema>>
+    getCurrentContext: (input?: GetCurrentContextInput) => Promise<CurrentContext>
+    setCurrentContext: (input: SetCurrentContextInput) => Promise<CurrentContext>
+    listTargetOptions: (input?: ListTargetOptionsInput) => Promise<CurrentTargetOptionsPayload>
+    openTrade: (input: OpenTradeInput) => Promise<TradeMutationResult>
+    addToTrade: (input: AddToTradeInput) => Promise<TradeMutationResult>
+    reduceTrade: (input: ReduceTradeInput) => Promise<TradeMutationResult>
+    closeTrade: (input: CloseTradeInput) => Promise<TradeMutationResult>
     saveRealtimeView: (input: SaveSessionRealtimeViewInput) => Promise<ContentBlockMutationResult>
+    moveContentBlock: (input: MoveContentBlockInput) => Promise<ContentBlockMoveResult>
     deleteContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>
     restoreContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>
     deleteScreenshot: (input: SetScreenshotDeletedInput) => Promise<ScreenshotMutationResult>
@@ -358,9 +479,9 @@ export type AlphaNexusApi = {
     openSnipCapture: (input?: OpenSnipCaptureInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
     getPendingSnip: () => Promise<z.infer<typeof PendingSnipCaptureSchema> | null>
     copyPendingSnip: (input: SnipCaptureSelectionInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
-    savePendingSnip: (input: SnipCaptureSelectionInput) => Promise<z.infer<typeof CaptureResultSchema>>
+    savePendingSnip: (input: SavePendingSnipInput) => Promise<z.infer<typeof SavePendingSnipResultSchema>>
     cancelPendingSnip: () => Promise<z.infer<typeof CaptureCommandResultSchema>>
-    onSaved: (listener: (result: z.infer<typeof CaptureResultSchema>) => void) => () => void
+    onSaved: (listener: (result: z.infer<typeof SavePendingSnipResultSchema>) => void) => () => void
   }
   ai: {
     listProviders: () => Promise<z.infer<typeof AiProviderConfigSchema>[]>

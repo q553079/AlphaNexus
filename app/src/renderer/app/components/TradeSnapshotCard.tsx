@@ -28,6 +28,18 @@ export const TradeSnapshotCard = ({ trade }: TradeSnapshotCardProps) => (
         <dt>数量</dt>
         <dd>{trade.quantity}</dd>
       </div>
+      {trade.exit_price != null ? (
+        <div>
+          <dt>平仓</dt>
+          <dd>{trade.exit_price}</dd>
+        </div>
+      ) : null}
+      {trade.pnl_r != null ? (
+        <div>
+          <dt>PnL (R)</dt>
+          <dd>{trade.pnl_r}</dd>
+        </div>
+      ) : null}
     </dl>
     <p>{trade.thesis}</p>
   </div>

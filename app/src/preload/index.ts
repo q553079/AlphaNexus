@@ -9,14 +9,20 @@ import type {
   AdoptMarketAnchorInput,
   GetActiveMarketAnchorsInput,
   GetAnchorReviewSuggestionsInput,
+  AddToTradeInput,
+  MoveContentBlockInput,
   SetAiRecordDeletedInput,
   SetAnnotationDeletedInput,
+  GetCurrentContextInput,
   CaptureSessionContextInput,
+  CloseTradeInput,
   GetComposerSuggestionsInput,
+  ListTargetOptionsInput,
   GetKnowledgeGroundingsInput,
   GetApprovedKnowledgeRuntimeInput,
   GetKnowledgeReviewDashboardInput,
   GetRankingExplanationsInput,
+  OpenTradeInput,
   GetPeriodReviewInput,
   GetSessionWorkbenchInput,
   GetSimilarCasesInput,
@@ -26,16 +32,23 @@ import type {
   IngestKnowledgeSourceInput,
   ListMemoryProposalsInput,
   OpenSnipCaptureInput,
+  ReduceTradeInput,
   ReviewKnowledgeCardInput,
   RunAnnotationSuggestionsInput,
   RunAiAnalysisInput,
+  SavePendingSnipInput,
   SaveSessionRealtimeViewInput,
+  SetCurrentContextInput,
   SetScreenshotDeletedInput,
   SnipCaptureSelectionInput,
   SetContentBlockDeletedInput,
   UpdateMarketAnchorStatusInput,
 } from '@shared/contracts/workbench'
-import type { CaptureResult, ImportScreenshotInput, SaveScreenshotAnnotationsInput } from '@shared/capture/contracts'
+import type {
+  ImportScreenshotInput,
+  SavePendingSnipResult,
+  SaveScreenshotAnnotationsInput,
+} from '@shared/capture/contracts'
 import type { RunMockAiAnalysisInput, SaveAiProviderConfigInput } from '@shared/ai/contracts'
 
 const api: AlphaNexusApi = {
@@ -67,7 +80,15 @@ const api: AlphaNexusApi = {
     listMemoryProposals: (input?: ListMemoryProposalsInput) => ipcRenderer.invoke('workbench:list-memory-proposals', input),
     approveMemoryProposal: (input: ReviewableMemoryActionInput) => ipcRenderer.invoke('workbench:approve-memory-proposal', input),
     rejectMemoryProposal: (input: ReviewableMemoryActionInput) => ipcRenderer.invoke('workbench:reject-memory-proposal', input),
+    getCurrentContext: (input?: GetCurrentContextInput) => ipcRenderer.invoke('workbench:get-current-context', input),
+    setCurrentContext: (input: SetCurrentContextInput) => ipcRenderer.invoke('workbench:set-current-context', input),
+    listTargetOptions: (input?: ListTargetOptionsInput) => ipcRenderer.invoke('workbench:list-target-options', input),
+    openTrade: (input: OpenTradeInput) => ipcRenderer.invoke('workbench:open-trade', input),
+    addToTrade: (input: AddToTradeInput) => ipcRenderer.invoke('workbench:add-trade', input),
+    reduceTrade: (input: ReduceTradeInput) => ipcRenderer.invoke('workbench:reduce-trade', input),
+    closeTrade: (input: CloseTradeInput) => ipcRenderer.invoke('workbench:close-trade', input),
     saveRealtimeView: (input: SaveSessionRealtimeViewInput) => ipcRenderer.invoke('workbench:save-realtime-view', input),
+    moveContentBlock: (input: MoveContentBlockInput) => ipcRenderer.invoke('workbench:move-content-block', input),
     deleteContentBlock: (input: SetContentBlockDeletedInput) => ipcRenderer.invoke('workbench:delete-content-block', input),
     restoreContentBlock: (input: SetContentBlockDeletedInput) => ipcRenderer.invoke('workbench:restore-content-block', input),
     deleteScreenshot: (input: SetScreenshotDeletedInput) => ipcRenderer.invoke('workbench:delete-screenshot', input),
@@ -82,12 +103,12 @@ const api: AlphaNexusApi = {
     openSnipCapture: (input?: OpenSnipCaptureInput) => ipcRenderer.invoke('capture:open-snip', input),
     getPendingSnip: () => ipcRenderer.invoke('capture:get-pending-snip'),
     copyPendingSnip: (input: SnipCaptureSelectionInput) => ipcRenderer.invoke('capture:copy-pending-snip', input),
-    savePendingSnip: (input: SnipCaptureSelectionInput) => ipcRenderer.invoke('capture:save-pending-snip', input),
+    savePendingSnip: (input: SavePendingSnipInput) => ipcRenderer.invoke('capture:save-pending-snip', input),
     cancelPendingSnip: () => ipcRenderer.invoke('capture:cancel-pending-snip'),
     importImage: (input: ImportScreenshotInput) => ipcRenderer.invoke('capture:import-image', input),
     saveAnnotations: (input: SaveScreenshotAnnotationsInput) => ipcRenderer.invoke('capture:save-annotations', input),
     onSaved: (listener) => {
-      const wrapped = (_event: IpcRendererEvent, result: CaptureResult) => {
+      const wrapped = (_event: IpcRendererEvent, result: SavePendingSnipResult) => {
         listener(result)
       }
 

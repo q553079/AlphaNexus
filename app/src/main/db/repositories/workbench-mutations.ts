@@ -3,11 +3,13 @@ import { AiRunSchema, AnalysisCardSchema } from '@shared/contracts/analysis'
 import type { AnnotationRecord, ScreenshotRecord } from '@shared/contracts/content'
 import { ContentBlockSchema } from '@shared/contracts/content'
 import { EventSchema } from '@shared/contracts/event'
+import { MoveContentBlockInputSchema, ContentBlockMoveResultSchema } from '@shared/contracts/workbench'
 import {
   REALTIME_VIEW_TITLE,
   buildSummary,
   createId,
   currentIso,
+  parseJsonArray,
 } from '@main/db/repositories/workbench-utils'
 import {
   loadContentBlockById,
@@ -16,9 +18,100 @@ import {
   loadSessionRealtimeViewBlock,
   loadScreenshotById,
 } from '@main/db/repositories/workbench-queries'
+import { insertContentBlockMoveAudit } from '@main/db/repositories/workbench-block-move-history'
 
 const syncSessionRealtimeView = (db: Database.Database, sessionId: string, content: string) => {
   db.prepare('UPDATE sessions SET my_realtime_view = ? WHERE id = ?').run(content, sessionId)
+}
+
+const resolveMoveTargetScope = (
+  db: Database.Database,
+  input: ReturnType<typeof MoveContentBlockInputSchema.parse>,
+) => {
+  if (input.target_kind === 'session') {
+    const sessionRow = db.prepare(`
+      SELECT id, period_id
+      FROM sessions
+      WHERE id = ? AND deleted_at IS NULL
+      LIMIT 1
+    `).get(input.session_id) as { id: string, period_id: string } | undefined
+    if (!sessionRow) {
+      throw new Error(`未找到目标 Session ${input.session_id}。`)
+    }
+
+    return {
+      session_id: sessionRow.id,
+      period_id: sessionRow.period_id,
+      context_type: 'session' as const,
+      context_id: sessionRow.id,
+    }
+  }
+
+  if (input.target_kind === 'trade') {
+    if (!input.trade_id) {
+      throw new Error('移动到 Trade 目标时必须提供 trade_id。')
+    }
+
+    const tradeRow = db.prepare(`
+      SELECT trades.id, trades.session_id, sessions.period_id
+      FROM trades
+      INNER JOIN sessions ON sessions.id = trades.session_id
+      WHERE trades.id = ? AND trades.deleted_at IS NULL AND sessions.deleted_at IS NULL
+      LIMIT 1
+    `).get(input.trade_id) as { id: string, session_id: string, period_id: string } | undefined
+    if (!tradeRow) {
+      throw new Error(`未找到目标 Trade ${input.trade_id}。`)
+    }
+
+    return {
+      session_id: tradeRow.session_id,
+      period_id: tradeRow.period_id,
+      context_type: 'trade' as const,
+      context_id: tradeRow.id,
+    }
+  }
+
+  if (!input.period_id) {
+    throw new Error('移动到 Period 目标时必须提供 period_id。')
+  }
+
+  const sessionRow = db.prepare(`
+    SELECT id, period_id
+    FROM sessions
+    WHERE id = ? AND deleted_at IS NULL
+    LIMIT 1
+  `).get(input.session_id) as { id: string, period_id: string } | undefined
+  if (!sessionRow) {
+    throw new Error(`未找到 Period 目标使用的代表 Session ${input.session_id}。`)
+  }
+  if (sessionRow.period_id !== input.period_id) {
+    throw new Error(`Session ${input.session_id} 不属于 Period ${input.period_id}。`)
+  }
+
+  return {
+    session_id: sessionRow.id,
+    period_id: sessionRow.period_id,
+    context_type: 'period' as const,
+    context_id: input.period_id,
+  }
+}
+
+const detachBlockFromEvent = (
+  db: Database.Database,
+  blockId: string,
+  eventId: string | null,
+) => {
+  if (!eventId) {
+    return
+  }
+
+  const eventRow = db.prepare('SELECT content_block_ids_json FROM events WHERE id = ? LIMIT 1').get(eventId) as { content_block_ids_json: string } | undefined
+  if (!eventRow) {
+    return
+  }
+
+  const nextBlockIds = parseJsonArray<string>(eventRow.content_block_ids_json).filter((id) => id !== blockId)
+  db.prepare('UPDATE events SET content_block_ids_json = ? WHERE id = ?').run(JSON.stringify(nextBlockIds), eventId)
 }
 
 export const createImportedScreenshot = (
@@ -246,6 +339,12 @@ export const setScreenshotDeletedState = (
         SET deleted_at = ?
         WHERE id = ?
       `).run(deletedAt, existingScreenshot.event_id)
+
+      db.prepare(`
+        UPDATE content_blocks
+        SET soft_deleted = ?, deleted_at = ?
+        WHERE event_id = ?
+      `).run(input.deleted ? 1 : 0, deletedAt, existingScreenshot.event_id)
     }
 
     return loadScreenshotById(db, existingScreenshot.id)
@@ -338,6 +437,73 @@ export const setContentBlockDeletedState = (
     }
 
     return loadContentBlockById(db, existingBlock.id)
+  })
+
+  return transaction()
+}
+
+export const moveContentBlock = (
+  db: Database.Database,
+  rawInput: unknown,
+) => {
+  const input = MoveContentBlockInputSchema.parse(rawInput)
+  const existingBlock = loadContentBlockById(db, input.block_id)
+  if (existingBlock.soft_deleted) {
+    throw new Error(`内容块 ${existingBlock.id} 已删除，无法改挂载。`)
+  }
+  if (existingBlock.block_type === 'ai-summary') {
+    throw new Error('AI 摘要块暂不支持改挂载。')
+  }
+  if (existingBlock.title === REALTIME_VIEW_TITLE) {
+    throw new Error('Realtime view 块暂不支持改挂载。')
+  }
+
+  const targetScope = resolveMoveTargetScope(db, input)
+  if (
+    existingBlock.session_id === targetScope.session_id
+    && existingBlock.context_type === targetScope.context_type
+    && existingBlock.context_id === targetScope.context_id
+  ) {
+    throw new Error('内容块已经挂在目标上下文上。')
+  }
+
+  const movedAt = currentIso()
+  const transaction = db.transaction(() => {
+    detachBlockFromEvent(db, existingBlock.id, existingBlock.event_id)
+
+    const nextSortOrderRow = db.prepare(`
+      SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort_order
+      FROM content_blocks
+      WHERE session_id = ?
+    `).get(targetScope.session_id) as { next_sort_order: number }
+
+    db.prepare(`
+      UPDATE content_blocks
+      SET session_id = ?, event_id = NULL, sort_order = ?, context_type = ?, context_id = ?, soft_deleted = 0, deleted_at = NULL
+      WHERE id = ?
+    `).run(
+      targetScope.session_id,
+      nextSortOrderRow.next_sort_order,
+      targetScope.context_type,
+      targetScope.context_id,
+      existingBlock.id,
+    )
+
+    const moveAudit = insertContentBlockMoveAudit(db, {
+      block_id: existingBlock.id,
+      from_context_type: existingBlock.context_type,
+      from_context_id: existingBlock.context_id,
+      to_context_type: targetScope.context_type,
+      to_context_id: targetScope.context_id,
+      from_session_id: existingBlock.session_id,
+      to_session_id: targetScope.session_id,
+      moved_at: movedAt,
+    })
+
+    return ContentBlockMoveResultSchema.parse({
+      block: loadContentBlockById(db, existingBlock.id),
+      move_audit: moveAudit,
+    })
   })
 
   return transaction()
@@ -529,3 +695,10 @@ export const createAiAnalysisArtifacts = (
 
   return transaction()
 }
+
+export {
+  addToTrade,
+  closeTrade,
+  openTrade,
+  reduceTrade,
+} from '@main/db/repositories/workbench-trade-mutations'

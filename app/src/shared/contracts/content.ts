@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { AuditFieldsSchema, EntityIdSchema } from '@shared/contracts/base'
 
 export const AnnotationShapeSchema = z.enum(['rectangle', 'ellipse', 'line', 'arrow', 'text'])
+export const ContentContextTypeSchema = z.enum(['session', 'event', 'trade', 'period'])
+export const MovableContentContextTypeSchema = z.enum(['session', 'trade', 'period'])
 
 export const AnnotationSchema = AuditFieldsSchema.extend({
   screenshot_id: EntityIdSchema,
@@ -29,6 +31,19 @@ export const ScreenshotSchema = AuditFieldsSchema.extend({
   deleted_annotations: z.array(AnnotationSchema).default([]),
 })
 
+export const ContentBlockMoveAuditSchema = z.object({
+  id: EntityIdSchema,
+  schema_version: z.number().int().positive(),
+  block_id: EntityIdSchema,
+  from_context_type: ContentContextTypeSchema,
+  from_context_id: EntityIdSchema,
+  to_context_type: MovableContentContextTypeSchema,
+  to_context_id: EntityIdSchema,
+  from_session_id: EntityIdSchema,
+  to_session_id: EntityIdSchema,
+  moved_at: z.string().min(1),
+})
+
 export const ContentBlockSchema = AuditFieldsSchema.extend({
   session_id: EntityIdSchema,
   event_id: EntityIdSchema.nullable(),
@@ -36,11 +51,13 @@ export const ContentBlockSchema = AuditFieldsSchema.extend({
   title: z.string().min(1),
   content_md: z.string(),
   sort_order: z.number().int(),
-  context_type: z.enum(['session', 'event', 'trade']),
+  context_type: ContentContextTypeSchema,
   context_id: EntityIdSchema,
   soft_deleted: z.boolean(),
+  move_history: z.array(ContentBlockMoveAuditSchema).default([]),
 })
 
 export type AnnotationRecord = z.infer<typeof AnnotationSchema>
 export type ScreenshotRecord = z.infer<typeof ScreenshotSchema>
+export type ContentBlockMoveAuditRecord = z.infer<typeof ContentBlockMoveAuditSchema>
 export type ContentBlockRecord = z.infer<typeof ContentBlockSchema>

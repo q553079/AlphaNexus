@@ -33,6 +33,33 @@ import {
 import type { ScreenshotRecord } from '@shared/contracts/content'
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
 
+const resolveExplicitContextTrade = (payload: SessionWorkbenchPayload) =>
+  payload.current_context.trade_id
+    ? payload.trades.find((trade) => trade.id === payload.current_context.trade_id) ?? null
+    : null
+
+const resolveTradeFromScreenshot = (
+  payload: SessionWorkbenchPayload,
+  screenshotId?: string | null,
+) => {
+  if (!screenshotId) {
+    return null
+  }
+
+  const screenshotEvent = payload.events.find((event) =>
+    event.event_type === 'screenshot'
+    && event.screenshot_id === screenshotId)
+
+  return screenshotEvent?.trade_id
+    ? payload.trades.find((trade) => trade.id === screenshotEvent.trade_id) ?? null
+    : null
+}
+
+const resolveScopedTrade = (
+  payload: SessionWorkbenchPayload,
+  screenshotId?: string | null,
+) => resolveTradeFromScreenshot(payload, screenshotId) ?? resolveExplicitContextTrade(payload)
+
 const providerCapabilities: Record<AiProviderConfig['provider'], Pick<AiProviderConfig, 'supports_base_url_override' | 'supports_local_api_key'>> = {
   deepseek: {
     supports_base_url_override: true,
@@ -220,21 +247,28 @@ const buildPromptPreview = (
   return [basePrompt, buildScreenshotContext(screenshot)].join('\n\n')
 }
 
-const inferTradeState = (payload: SessionWorkbenchPayload) => {
-  const activeTrade = payload.trades.find((trade) => trade.status === 'open')
-  if (!activeTrade) {
+const inferTradeState = (payload: SessionWorkbenchPayload, screenshotId?: string | null) => {
+  const scopedTrade = resolveScopedTrade(payload, screenshotId)
+  if (!scopedTrade) {
     return 'pre_entry'
   }
-  return activeTrade.exit_price ? 'exit' : 'manage'
+  if (scopedTrade.status === 'closed') {
+    return 'exit'
+  }
+  return scopedTrade.exit_price ? 'exit' : 'manage'
 }
 
-const buildPromptContext = async(paths: LocalFirstPaths, payload: SessionWorkbenchPayload) => {
-  const scopeTrade = payload.trades.find((trade) => trade.status === 'open') ?? payload.trades[0] ?? null
+const buildPromptContext = async(
+  paths: LocalFirstPaths,
+  payload: SessionWorkbenchPayload,
+  input?: { screenshot_id?: string | null },
+) => {
+  const scopeTrade = resolveScopedTrade(payload, input?.screenshot_id)
   const [runtime, activeAnchors] = await Promise.all([
     getApprovedKnowledgeRuntime(paths, {
       contract_scope: payload.contract.symbol,
       tags: payload.session.tags,
-      trade_state: inferTradeState(payload),
+      trade_state: inferTradeState(payload, input?.screenshot_id),
       context_tags: payload.session.tags,
       limit: 6,
     }),
@@ -300,7 +334,9 @@ const buildAiContentMarkdown = (
 export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, rawInput: unknown) => {
   const input = RunAiAnalysisInputSchema.parse(rawInput)
   const payload = await getSessionWorkbench(paths, { session_id: input.session_id })
-  const promptContext = await buildPromptContext(paths, payload)
+  const promptContext = await buildPromptContext(paths, payload, {
+    screenshot_id: input.screenshot_id ?? null,
+  })
   const promptPreview = buildPromptPreview(payload, input, promptContext)
   const providerConfigs = await mergeProviderConfigs(paths, env)
   const providerConfig = providerConfigs.find((config) => config.provider === input.provider)
@@ -333,9 +369,7 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     providerSecret,
   })
 
-  const selectedEvent = input.screenshot_id
-    ? payload.events.find((event) => event.screenshot_id === input.screenshot_id) ?? null
-    : payload.events[payload.events.length - 1] ?? null
+  const scopedTrade = resolveScopedTrade(payload, input.screenshot_id ?? null)
   const providerLabel = providerConfig.label
   const persisted = await recordAiAnalysis(paths, {
     session_id: input.session_id,
@@ -344,7 +378,7 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     prompt_kind: input.prompt_kind,
     input_summary: summarizeInput(promptPreview),
     screenshot_id: input.screenshot_id ?? null,
-    trade_id: selectedEvent?.trade_id ?? null,
+    trade_id: scopedTrade?.id ?? null,
     event_title: `${providerLabel} ${promptKindTitle[input.prompt_kind]}`,
     block_title: `${providerLabel} 摘要`,
     summary_short: adapterResult.analysis.summary_short,
@@ -356,7 +390,7 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     await recordKnowledgeGroundingHits(paths, {
       ai_run_id: persisted.ai_run.id,
       session_id: input.session_id,
-      trade_id: selectedEvent?.trade_id ?? null,
+      trade_id: scopedTrade?.id ?? null,
       screenshot_id: input.screenshot_id ?? null,
       hits: promptContext.runtime_hits.slice(0, 4).map((hit) => ({
         knowledge_card_id: hit.knowledge_card_id,

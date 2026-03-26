@@ -1,11 +1,14 @@
 import { z } from 'zod'
 import { AuditFieldsSchema, EntityIdSchema, IsoDateTimeSchema } from '@shared/contracts/base'
 
+export const TradeSideSchema = z.enum(['long', 'short'])
+export const TradeStatusSchema = z.enum(['planned', 'open', 'closed'])
+
 export const TradeSchema = AuditFieldsSchema.extend({
   session_id: EntityIdSchema,
   symbol: z.string().min(1),
-  side: z.enum(['long', 'short']),
-  status: z.enum(['planned', 'open', 'closed']),
+  side: TradeSideSchema,
+  status: TradeStatusSchema,
   quantity: z.number().positive(),
   entry_price: z.number(),
   stop_loss: z.number(),

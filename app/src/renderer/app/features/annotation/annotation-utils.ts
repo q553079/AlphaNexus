@@ -1,6 +1,12 @@
-import type { DraftAnnotation } from '@app/features/annotation/annotation-types'
+import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
 
-type AnnotationShape = DraftAnnotation['shape']
+type AnnotationShape = PendingDraftAnnotation['shape']
+type AnnotationBounds = {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
 
 const shapeConfig: Record<AnnotationShape, { prefix: string, color: string }> = {
   rectangle: { prefix: 'B', color: '#355c5a' },
@@ -10,8 +16,54 @@ const shapeConfig: Record<AnnotationShape, { prefix: string, color: string }> = 
   text: { prefix: 'T', color: '#7a5f2a' },
 }
 
-const countShape = (annotations: DraftAnnotation[], shape: AnnotationShape) =>
+const countShape = (annotations: PendingDraftAnnotation[], shape: AnnotationShape) =>
   annotations.filter((annotation) => annotation.shape === shape).length
+
+const buildLabel = (shape: AnnotationShape, annotations: PendingDraftAnnotation[]) => {
+  const { prefix } = shapeConfig[shape]
+  return `${prefix}${countShape(annotations, shape) + 1}`
+}
+
+export const toPendingDraftAnnotation = (annotation: DraftAnnotation): PendingDraftAnnotation => ({
+  shape: annotation.shape,
+  label: annotation.label,
+  color: annotation.color,
+  x1: annotation.x1,
+  y1: annotation.y1,
+  x2: annotation.x2,
+  y2: annotation.y2,
+  text: annotation.text,
+  stroke_width: annotation.stroke_width,
+})
+
+export const toScreenshotDraftAnnotation = (
+  screenshotId: string,
+  annotation: PendingDraftAnnotation,
+): DraftAnnotation => ({
+  ...annotation,
+  screenshot_id: screenshotId,
+})
+
+export const createPendingDraftAnnotation = (
+  shape: AnnotationShape,
+  annotations: PendingDraftAnnotation[],
+  bounds: AnnotationBounds,
+): PendingDraftAnnotation => {
+  const { color } = shapeConfig[shape]
+  const label = buildLabel(shape, annotations)
+
+  return {
+    shape,
+    label,
+    color,
+    x1: bounds.x1,
+    y1: bounds.y1,
+    x2: bounds.x2,
+    y2: bounds.y2,
+    text: shape === 'text' ? '注释' : null,
+    stroke_width: shape === 'line' || shape === 'arrow' ? 3 : 2.6,
+  }
+}
 
 export const createDraftAnnotation = (
   shape: AnnotationShape,
@@ -20,49 +72,16 @@ export const createDraftAnnotation = (
   x: number,
   y: number,
 ): DraftAnnotation => {
-  const { prefix, color } = shapeConfig[shape]
-  const sequence = countShape(annotations, shape) + 1
-
-  if (shape === 'text') {
-    return {
-      screenshot_id: screenshotId,
-      shape,
-      label: `${prefix}${sequence}`,
-      color,
-      x1: x,
-      y1: y,
-      x2: x + 180,
-      y2: y + 44,
-      text: 'Shift in order flow',
-      stroke_width: 2,
-    }
-  }
-
-  if (shape === 'line' || shape === 'arrow') {
-    return {
-      screenshot_id: screenshotId,
-      shape,
-      label: `${prefix}${sequence}`,
-      color,
-      x1: x,
-      y1: y,
-      x2: x + 180,
-      y2: y - 60,
-      text: null,
-      stroke_width: 3,
-    }
-  }
-
-  return {
-    screenshot_id: screenshotId,
+  const pendingAnnotations = annotations.map(toPendingDraftAnnotation)
+  const nextPending = createPendingDraftAnnotation(
     shape,
-    label: `${prefix}${sequence}`,
-    color,
-    x1: x,
-    y1: y,
-    x2: x + 190,
-    y2: y + 110,
-    text: null,
-    stroke_width: 3,
-  }
+    pendingAnnotations,
+    shape === 'text'
+      ? { x1: x, y1: y, x2: x + 220, y2: y + 72 }
+      : shape === 'line' || shape === 'arrow'
+        ? { x1: x, y1: y, x2: x + 180, y2: y - 60 }
+        : { x1: x, y1: y, x2: x + 190, y2: y + 110 },
+  )
+
+  return toScreenshotDraftAnnotation(screenshotId, nextPending)
 }

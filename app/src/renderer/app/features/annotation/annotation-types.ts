@@ -1,3 +1,4 @@
-import type { SaveScreenshotAnnotationsInput } from '@shared/capture/contracts'
+import type { PendingSnipAnnotationInput, SaveScreenshotAnnotationsInput } from '@shared/capture/contracts'
 
 export type DraftAnnotation = SaveScreenshotAnnotationsInput['annotations'][number]
+export type PendingDraftAnnotation = PendingSnipAnnotationInput

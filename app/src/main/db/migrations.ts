@@ -381,6 +381,50 @@ const migrations: Migration[] = [
       ON analysis_cards(trade_id, created_at DESC);
     `,
   },
+  {
+    id: 5,
+    name: 'create-current-context-table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS current_context (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        contract_id TEXT NOT NULL,
+        period_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        trade_id TEXT,
+        source_view TEXT NOT NULL,
+        capture_kind TEXT NOT NULL,
+        FOREIGN KEY (contract_id) REFERENCES contracts(id),
+        FOREIGN KEY (period_id) REFERENCES periods(id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id),
+        FOREIGN KEY (trade_id) REFERENCES trades(id)
+      );
+    `,
+  },
+  {
+    id: 6,
+    name: 'create-content-block-move-audit-table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS content_block_move_audit (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        block_id TEXT NOT NULL,
+        from_context_type TEXT NOT NULL,
+        from_context_id TEXT NOT NULL,
+        to_context_type TEXT NOT NULL,
+        to_context_id TEXT NOT NULL,
+        from_session_id TEXT NOT NULL,
+        to_session_id TEXT NOT NULL,
+        moved_at TEXT NOT NULL,
+        FOREIGN KEY (block_id) REFERENCES content_blocks(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_content_block_move_audit_block
+      ON content_block_move_audit(block_id, moved_at DESC);
+    `,
+  },
 ]
 
 export const applyMigrations = (db: Database.Database) => {

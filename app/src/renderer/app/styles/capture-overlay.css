@@ -1,0 +1,250 @@
+.capture-overlay {
+  min-height: 100vh;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background:
+    radial-gradient(circle at top left, rgba(36, 87, 83, 0.22), transparent 32%),
+    linear-gradient(180deg, rgba(8, 12, 11, 0.98), rgba(7, 10, 9, 0.98));
+  color: #f6f4ee;
+}
+
+.capture-overlay__toolbar {
+  display: flex;
+  gap: 20px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.capture-overlay__toolbar h1 {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.capture-overlay__summary {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 74ch;
+  line-height: 1.55;
+}
+
+.capture-overlay__status {
+  background: rgba(53, 92, 90, 0.24);
+  color: #d9f1ee;
+}
+
+.capture-overlay__meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.capture-overlay__meta .status-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.capture-overlay__workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 390px;
+}
+
+.capture-overlay__surface-card {
+  display: flex;
+  min-height: 0;
+  padding: 16px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(15, 20, 18, 0.96), rgba(11, 16, 14, 0.94)),
+    radial-gradient(circle at top, rgba(53, 92, 90, 0.18), transparent 56%);
+}
+
+.capture-overlay__empty {
+  width: 100%;
+  margin: 0;
+  align-self: stretch;
+}
+
+.capture-editor {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.capture-editor__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.capture-editor__tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.capture-editor__tool {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.capture-editor__tool.is-active {
+  border-color: rgba(237, 229, 202, 0.48);
+  background: rgba(255, 249, 235, 0.16);
+  color: #fff4d9;
+}
+
+.capture-editor__tool:disabled {
+  opacity: 0.42;
+}
+
+.capture-editor__toolbar-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.66);
+  line-height: 1.45;
+  font-size: 13px;
+}
+
+.capture-editor__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #0e1311;
+  cursor: crosshair;
+  aspect-ratio: var(--capture-editor-aspect);
+}
+
+.capture-editor__image,
+.capture-editor__overlay,
+.capture-editor__wash {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.capture-editor__image {
+  object-fit: cover;
+  user-select: none;
+}
+
+.capture-editor__wash {
+  background:
+    linear-gradient(180deg, rgba(8, 11, 10, 0.5), rgba(8, 11, 10, 0.62)),
+    radial-gradient(circle at center, transparent 0%, rgba(8, 11, 10, 0.2) 100%);
+  pointer-events: none;
+}
+
+.capture-editor__overlay {
+  pointer-events: none;
+}
+
+.capture-editor__selection {
+  position: absolute;
+  border: 2px solid #f8f2df;
+  box-shadow: 0 0 0 9999px rgba(6, 9, 8, 0.56);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.capture-editor__hint-card {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  max-width: 420px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(16, 21, 19, 0.9);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.capture-editor__hint-card p {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.5;
+}
+
+.capture-editor__shape {
+  transition: opacity 120ms ease;
+}
+
+.capture-editor__shape.is-preview {
+  opacity: 0.7;
+}
+
+.capture-editor__shape.is-active rect,
+.capture-editor__shape.is-active ellipse,
+.capture-editor__shape.is-active line {
+  filter: drop-shadow(0 0 10px rgba(255, 248, 223, 0.22));
+}
+
+.capture-editor__label {
+  font-size: 22px;
+  font-weight: 700;
+  fill: #f6f4ee;
+}
+
+.capture-editor__text {
+  font-size: 18px;
+  fill: #44514d;
+}
+
+.capture-overlay .target-selector__label,
+.capture-overlay .target-selector__search span,
+.capture-overlay .target-selector__section-header span,
+.capture-overlay .target-selector__trigger-meta,
+.capture-overlay .target-selector__trigger-copy span,
+.capture-overlay .target-selector__option p {
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.capture-overlay .target-selector__trigger,
+.capture-overlay .target-selector__panel,
+.capture-overlay .target-selector__option {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6f4ee;
+}
+
+.capture-overlay .target-selector__option.is-selected,
+.capture-overlay .target-selector__trigger.is-open {
+  border-color: rgba(237, 229, 202, 0.3);
+  background: rgba(255, 248, 223, 0.08);
+  box-shadow: none;
+}
+
+.capture-overlay .target-selector .inline-input {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6f4ee;
+}
+
+.capture-overlay .target-selector .inline-input::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+@media (max-width: 1340px) {
+  .capture-overlay__workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .capture-overlay__surface-card {
+    min-height: 0;
+  }
+}

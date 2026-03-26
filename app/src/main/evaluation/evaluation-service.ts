@@ -161,7 +161,7 @@ const buildJudgment = (
   confidence_pct: confidencePct,
   verdict: resolveVerdict(bias, outcome),
   reason_summary: outcome.status === 'resolved'
-    ? `${source === 'ai' ? 'AI' : 'Human'} judgment compared against resolved outcome ${outcome.outcome_direction}.`
+    ? `${source === 'ai' ? 'AI' : '我的判断'}偏向 ${bias ?? 'unknown'}，最终结果为 ${outcome.outcome_direction}，${outcome.pnl_r ?? '待补充'}R。`
     : outcome.summary,
 })
 
@@ -251,7 +251,7 @@ export const getTradeEvaluationSummary = async(paths: LocalFirstPaths, tradeId: 
     outcome,
     plan_adherence_pct: row.score ?? null,
     disagreement_summary: aiJudgment && aiJudgment.bias !== humanJudgment.bias
-      ? `AI=${aiJudgment.bias}，Human=${humanJudgment.bias}。`
+      ? `AI 偏向 ${aiJudgment.bias}，我的判断偏向 ${humanJudgment.bias}。`
       : null,
   }
 }

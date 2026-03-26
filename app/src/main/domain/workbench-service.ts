@@ -1,24 +1,42 @@
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import {
+  addTradePosition,
+  closeTradePosition,
+  createTrade,
   deleteAiRecord,
   deleteAnnotation,
   deleteScreenshot,
   deleteContentBlock,
   fetchPeriodReview,
+  fetchCurrentContext,
   fetchSessionWorkbench,
+  fetchTargetOptions,
   fetchTradeDetail,
+  moveWorkbenchContentBlock,
+  reduceTradePosition,
   restoreAiRecord,
   restoreAnnotation,
   restoreScreenshot,
   restoreContentBlock,
+  saveCurrentContext,
   saveAiAnalysisArtifacts,
   saveSessionRealtimeView,
 } from '@main/storage/workbench'
 import type {
+  CurrentContext,
+  CurrentTargetOptionsPayload,
+  GetCurrentContextInput,
   GetPeriodReviewInput,
   GetSessionWorkbenchInput,
   GetTradeDetailInput,
+  ListTargetOptionsInput,
+  MoveContentBlockInput,
+  OpenTradeInput,
+  AddToTradeInput,
+  CloseTradeInput,
+  ReduceTradeInput,
   SaveSessionRealtimeViewInput,
+  SetCurrentContextInput,
   SetAiRecordDeletedInput,
   SetAnnotationDeletedInput,
   SetContentBlockDeletedInput,
@@ -34,8 +52,32 @@ export const getTradeDetail = async(paths: LocalFirstPaths, input?: GetTradeDeta
 export const getPeriodReview = async(paths: LocalFirstPaths, input?: GetPeriodReviewInput) =>
   fetchPeriodReview(paths, input?.period_id)
 
+export const getCurrentWorkbenchContext = async(paths: LocalFirstPaths, input?: GetCurrentContextInput): Promise<CurrentContext> =>
+  fetchCurrentContext(paths, input)
+
+export const setCurrentWorkbenchContext = async(paths: LocalFirstPaths, input: SetCurrentContextInput): Promise<CurrentContext> =>
+  saveCurrentContext(paths, input)
+
+export const listWorkbenchTargetOptions = async(paths: LocalFirstPaths, input?: ListTargetOptionsInput): Promise<CurrentTargetOptionsPayload> =>
+  fetchTargetOptions(paths, input)
+
+export const openTradeForSession = async(paths: LocalFirstPaths, input: OpenTradeInput) =>
+  createTrade(paths, input)
+
+export const addToExistingTrade = async(paths: LocalFirstPaths, input: AddToTradeInput) =>
+  addTradePosition(paths, input)
+
+export const reduceExistingTrade = async(paths: LocalFirstPaths, input: ReduceTradeInput) =>
+  reduceTradePosition(paths, input)
+
+export const closeExistingTrade = async(paths: LocalFirstPaths, input: CloseTradeInput) =>
+  closeTradePosition(paths, input)
+
 export const updateSessionRealtimeView = async(paths: LocalFirstPaths, input: SaveSessionRealtimeViewInput) =>
   saveSessionRealtimeView(paths, input)
+
+export const retargetContentBlock = async(paths: LocalFirstPaths, input: MoveContentBlockInput) =>
+  moveWorkbenchContentBlock(paths, input)
 
 export const softDeleteContentBlock = async(paths: LocalFirstPaths, input: SetContentBlockDeletedInput) =>
   deleteContentBlock(paths, input.block_id)
