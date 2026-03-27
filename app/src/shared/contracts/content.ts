@@ -2,6 +2,18 @@ import { z } from 'zod'
 import { AuditFieldsSchema, EntityIdSchema } from '@shared/contracts/base'
 
 export const AnnotationShapeSchema = z.enum(['rectangle', 'ellipse', 'line', 'arrow', 'text'])
+export const AnnotationSemanticTypeSchema = z.enum([
+  'support',
+  'resistance',
+  'liquidity',
+  'fvg',
+  'imbalance',
+  'entry',
+  'invalidation',
+  'target',
+  'path',
+  'context',
+])
 export const ContentContextTypeSchema = z.enum(['session', 'event', 'trade', 'period'])
 export const MovableContentContextTypeSchema = z.enum(['session', 'trade', 'period'])
 
@@ -9,12 +21,16 @@ export const AnnotationSchema = AuditFieldsSchema.extend({
   screenshot_id: EntityIdSchema,
   shape: AnnotationShapeSchema,
   label: z.string().min(1),
+  title: z.string().min(1),
+  semantic_type: AnnotationSemanticTypeSchema.nullable(),
   color: z.string().min(1),
   x1: z.number(),
   y1: z.number(),
   x2: z.number(),
   y2: z.number(),
   text: z.string().nullable(),
+  note_md: z.string(),
+  add_to_memory: z.boolean(),
   stroke_width: z.number().positive(),
 })
 
@@ -24,6 +40,11 @@ export const ScreenshotSchema = AuditFieldsSchema.extend({
   kind: z.enum(['chart', 'execution', 'exit']),
   file_path: z.string().min(1),
   asset_url: z.string().min(1),
+  raw_file_path: z.string().min(1),
+  raw_asset_url: z.string().min(1),
+  annotated_file_path: z.string().nullable(),
+  annotated_asset_url: z.string().nullable(),
+  annotations_json_path: z.string().nullable(),
   caption: z.string().nullable(),
   width: z.number().positive(),
   height: z.number().positive(),

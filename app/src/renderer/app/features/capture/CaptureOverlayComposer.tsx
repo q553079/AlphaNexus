@@ -4,6 +4,19 @@ import type { PendingDraftAnnotation } from '@app/features/annotation/annotation
 import type { PendingSnipCapture } from '@shared/capture/contracts'
 import type { CurrentTargetOption, CurrentTargetOptionsPayload } from '@shared/contracts/workbench'
 
+const annotationSemanticOptions: Array<NonNullable<PendingDraftAnnotation['semantic_type']>> = [
+  'support',
+  'resistance',
+  'liquidity',
+  'fvg',
+  'imbalance',
+  'entry',
+  'invalidation',
+  'target',
+  'path',
+  'context',
+]
+
 type CaptureOverlayComposerProps = {
   activeAnnotationIndex: number | null
   annotations: PendingDraftAnnotation[]
@@ -133,6 +146,35 @@ export const CaptureOverlayComposer = ({
                   />
                 </label>
 
+                <label className="capture-overlay-composer__field" htmlFor="capture-overlay-annotation-title">
+                  <span>标题</span>
+                  <input
+                    className="inline-input"
+                    disabled={busy}
+                    id="capture-overlay-annotation-title"
+                    onChange={(event) => onAnnotationChange(activeAnnotationIndex ?? 0, { title: event.target.value })}
+                    value={activeAnnotation.title}
+                  />
+                </label>
+
+                <label className="capture-overlay-composer__field" htmlFor="capture-overlay-annotation-semantic">
+                  <span>语义类型</span>
+                  <select
+                    className="inline-input"
+                    disabled={busy}
+                    id="capture-overlay-annotation-semantic"
+                    onChange={(event) => onAnnotationChange(activeAnnotationIndex ?? 0, {
+                      semantic_type: event.target.value ? event.target.value as PendingDraftAnnotation['semantic_type'] : null,
+                    })}
+                    value={activeAnnotation.semantic_type ?? ''}
+                  >
+                    <option value="">未指定</option>
+                    {annotationSemanticOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+
                 {activeAnnotation.shape === 'text' ? (
                   <label className="capture-overlay-composer__field" htmlFor="capture-overlay-annotation-text">
                     <span>文本内容</span>
@@ -147,8 +189,32 @@ export const CaptureOverlayComposer = ({
                   </label>
                 ) : null}
 
+                <label className="capture-overlay-composer__field" htmlFor="capture-overlay-annotation-note">
+                  <span>备注</span>
+                  <textarea
+                    className="capture-overlay-composer__annotation-textarea"
+                    disabled={busy}
+                    id="capture-overlay-annotation-note"
+                    onChange={(event) => onAnnotationChange(activeAnnotationIndex ?? 0, { note_md: event.target.value })}
+                    rows={3}
+                    value={activeAnnotation.note_md}
+                  />
+                </label>
+
+                <label className="capture-overlay-composer__field capture-overlay-composer__checkbox" htmlFor="capture-overlay-annotation-memory">
+                  <input
+                    checked={activeAnnotation.add_to_memory}
+                    disabled={busy}
+                    id="capture-overlay-annotation-memory"
+                    onChange={(event) => onAnnotationChange(activeAnnotationIndex ?? 0, { add_to_memory: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>加入记忆候选</span>
+                </label>
+
                 <div className="capture-overlay-composer__annotation-meta">
                   <span className="status-pill">{translateAnnotationShape(activeAnnotation.shape)}</span>
+                  <span className="status-pill">{activeAnnotation.semantic_type ?? '未指定语义'}</span>
                   <span className="status-pill">x1 {Math.round(activeAnnotation.x1)} / y1 {Math.round(activeAnnotation.y1)}</span>
                 </div>
 

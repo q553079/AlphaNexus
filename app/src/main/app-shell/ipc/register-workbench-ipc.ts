@@ -4,12 +4,15 @@ import { adoptMarketAnchor, buildActiveAnchorRuntimeSummary, getComposerShellDat
 import { applySuggestionAction } from '@main/domain/suggestion-action-service'
 import {
   addToExistingTrade,
+  cancelExistingTrade,
   closeExistingTrade,
+  createWorkbenchNoteBlockForContext,
   getCurrentWorkbenchContext,
   getPeriodReview,
   getSessionWorkbench,
   getTradeDetail,
   listWorkbenchTargetOptions,
+  moveScreenshotToTarget,
   openTradeForSession,
   retargetContentBlock,
   setCurrentWorkbenchContext,
@@ -22,7 +25,9 @@ import {
   undeleteAnnotation,
   undeleteContentBlock,
   undeleteScreenshot,
+  updateWorkbenchAnnotation,
   updateSessionRealtimeView,
+  updateWorkbenchNoteBlockContent,
 } from '@main/domain/workbench-service'
 import {
   MemoryProposalPayloadSchema,
@@ -48,6 +53,7 @@ import {
   ApplySuggestionActionInputSchema,
   ContentBlockMoveResultSchema,
   ContentBlockMutationResultSchema,
+  CreateWorkbenchNoteBlockInputSchema,
   CurrentContextSchema,
   CurrentTargetOptionsPayloadSchema,
   GetCurrentContextInputSchema,
@@ -60,9 +66,11 @@ import {
   ListTargetOptionsInputSchema,
   ListMemoryProposalsInputSchema,
   MoveContentBlockInputSchema,
+  MoveScreenshotInputSchema,
   OpenTradeInputSchema,
   PeriodReviewPayloadSchema,
   ReduceTradeInputSchema,
+  CancelTradeInputSchema,
   RunAnnotationSuggestionsInputSchema,
   SaveSessionRealtimeViewInputSchema,
   SessionWorkbenchPayloadSchema,
@@ -77,6 +85,8 @@ import {
   TradeDetailPayloadSchema,
   AddToTradeInputSchema,
   CloseTradeInputSchema,
+  UpdateAnnotationInputSchema,
+  UpdateWorkbenchNoteBlockInputSchema,
 } from '@shared/contracts/workbench'
 import type { AppContext } from './shared'
 import {
@@ -306,8 +316,23 @@ export const registerWorkbenchIpc = ({ paths }: AppContext) => {
     return ContentBlockMutationResultSchema.parse({ block: result })
   })
 
+  ipcMain.handle('workbench:create-note-block', async(_event, input) => {
+    const result = await createWorkbenchNoteBlockForContext(paths, CreateWorkbenchNoteBlockInputSchema.parse(input))
+    return ContentBlockMutationResultSchema.parse({ block: result })
+  })
+
+  ipcMain.handle('workbench:update-note-block', async(_event, input) => {
+    const result = await updateWorkbenchNoteBlockContent(paths, UpdateWorkbenchNoteBlockInputSchema.parse(input))
+    return ContentBlockMutationResultSchema.parse({ block: result })
+  })
+
   ipcMain.handle('workbench:move-content-block', async(_event, input) => {
     return ContentBlockMoveResultSchema.parse(await retargetContentBlock(paths, MoveContentBlockInputSchema.parse(input)))
+  })
+
+  ipcMain.handle('workbench:move-screenshot', async(_event, input) => {
+    const result = await moveScreenshotToTarget(paths, MoveScreenshotInputSchema.parse(input))
+    return ScreenshotMutationResultSchema.parse({ screenshot: result })
   })
 
   ipcMain.handle('workbench:open-trade', async(_event, input) => {
@@ -324,6 +349,10 @@ export const registerWorkbenchIpc = ({ paths }: AppContext) => {
 
   ipcMain.handle('workbench:close-trade', async(_event, input) => {
     return TradeMutationResultSchema.parse(await closeExistingTrade(paths, CloseTradeInputSchema.parse(input)))
+  })
+
+  ipcMain.handle('workbench:cancel-trade', async(_event, input) => {
+    return TradeMutationResultSchema.parse(await cancelExistingTrade(paths, CancelTradeInputSchema.parse(input)))
   })
 
   ipcMain.handle('workbench:delete-content-block', async(_event, input) => {
@@ -348,6 +377,11 @@ export const registerWorkbenchIpc = ({ paths }: AppContext) => {
 
   ipcMain.handle('workbench:delete-annotation', async(_event, input) => {
     const result = await softDeleteAnnotation(paths, SetAnnotationDeletedInputSchema.parse(input))
+    return AnnotationMutationResultSchema.parse({ annotation: result })
+  })
+
+  ipcMain.handle('workbench:update-annotation', async(_event, input) => {
+    const result = await updateWorkbenchAnnotation(paths, UpdateAnnotationInputSchema.parse(input))
     return AnnotationMutationResultSchema.parse({ annotation: result })
   })
 

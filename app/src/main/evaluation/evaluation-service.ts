@@ -18,7 +18,7 @@ type SessionTradeRow = {
   session_tags_json: string
   trade_id: string | null
   trade_side: 'long' | 'short' | null
-  trade_status: 'planned' | 'open' | 'closed' | null
+  trade_status: 'planned' | 'open' | 'closed' | 'canceled' | null
   pnl_r: number | null
   score: number | null
   note_md: string | null
@@ -47,8 +47,11 @@ const loadTradeContextRow = (db: ReturnType<typeof getDatabase> extends Promise<
     LEFT JOIN analysis_cards a ON a.id = (
       SELECT ac.id
       FROM analysis_cards ac
+      INNER JOIN ai_runs ar ON ar.id = ac.ai_run_id
       WHERE ac.trade_id = t.id
         AND ac.deleted_at IS NULL
+        AND ar.deleted_at IS NULL
+        AND ar.prompt_kind = 'market-analysis'
       ORDER BY ac.created_at DESC
       LIMIT 1
     )
@@ -78,8 +81,11 @@ const loadPeriodRows = (db: ReturnType<typeof getDatabase> extends Promise<infer
     LEFT JOIN analysis_cards a ON a.id = (
       SELECT ac.id
       FROM analysis_cards ac
+      INNER JOIN ai_runs ar ON ar.id = ac.ai_run_id
       WHERE ac.trade_id = t.id
         AND ac.deleted_at IS NULL
+        AND ar.deleted_at IS NULL
+        AND ar.prompt_kind = 'market-analysis'
       ORDER BY ac.created_at DESC
       LIMIT 1
     )
@@ -100,6 +106,16 @@ const resolveOutcome = (row: SessionTradeRow): OutcomeSnapshot => {
       pnl_r: row.pnl_r,
       status: 'insufficient',
       summary: '当前没有足够的 trade outcome。',
+    }
+  }
+
+  if (row.trade_status === 'canceled') {
+    return {
+      trade_id: row.trade_id,
+      outcome_direction: 'unknown',
+      pnl_r: null,
+      status: 'insufficient',
+      summary: '交易线程已取消，不计入正常离场结果。',
     }
   }
 

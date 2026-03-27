@@ -28,6 +28,7 @@ import {
   toAnchorReviewSuggestionView,
   toSimilarCaseView,
 } from './session-workbench-mappers'
+import { buildScreenshotGalleryState, type ScreenshotGalleryState } from './session-screenshot-gallery'
 
 export type SessionWorkbenchDerivedState = {
   activeAnchors: MarketAnchorView[]
@@ -47,6 +48,7 @@ export type SessionWorkbenchDerivedState = {
   groundingHits: GroundingHitView[]
   latestEvaluation: EvaluationRecord | null
   realtimeViewBlock: ContentBlockRecord | null
+  screenshotGallery: ScreenshotGalleryState
   selectedEvent: EventRecord | null
   selectedScreenshot: ScreenshotRecord | null
   selectedScreenshotAnnotations: AnnotationRecord[]
@@ -85,9 +87,12 @@ export const deriveSessionWorkbenchState = (input: {
   const deletedScreenshots = payload?.deleted_screenshots ?? []
   const deletedAiRecords = payload?.deleted_ai_records ?? []
   const explicitTradeId = payload?.current_context.trade_id ?? null
+  const aiRunsById = new Map((payload?.ai_runs ?? []).map((run) => [run.id, run]))
   const analysisCard = payload
     ? payload.analysis_cards
-      .filter((card) => card.trade_id === explicitTradeId)
+      .filter((card) =>
+        card.trade_id === explicitTradeId
+        && aiRunsById.get(card.ai_run_id)?.prompt_kind !== 'trade-review')
       .at(-1) ?? null
     : null
   const currentTrade = payload ? resolveTradeForCurrentContext(payload.trades, explicitTradeId) : null
@@ -144,6 +149,11 @@ export const deriveSessionWorkbenchState = (input: {
     ?? null
   const activeContentBlocks = (payload?.content_blocks ?? []).filter((block) => !block.soft_deleted)
   const deletedContentBlocks = (payload?.content_blocks ?? []).filter((block) => block.soft_deleted && block.block_type !== 'ai-summary')
+  const screenshotGallery = buildScreenshotGalleryState({
+    current_trade_id: currentTrade?.id ?? null,
+    payload,
+    selected_screenshot_id: selectedScreenshot?.id ?? null,
+  })
 
   return {
     activeAnchors,
@@ -163,6 +173,7 @@ export const deriveSessionWorkbenchState = (input: {
     groundingHits,
     latestEvaluation,
     realtimeViewBlock,
+    screenshotGallery,
     selectedEvent,
     selectedScreenshot,
     selectedScreenshotAnnotations,

@@ -1,5 +1,5 @@
 import type { AiAdapter, AiAdapterRunInput, AiAdapterRunResult } from '@main/ai/adapters/base'
-import { AiAnalysisDraftSchema } from '@shared/ai/contracts'
+import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contracts'
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_MODEL = 'deepseek-reasoner'
@@ -34,6 +34,21 @@ const JSON_CONTRACT = [
   'If evidence is incomplete, say so explicitly in Simplified Chinese instead of omitting fields.',
 ].join('\n')
 
+const TRADE_REVIEW_JSON_CONTRACT = [
+  'Return a JSON object with exactly these keys:',
+  '{',
+  '  "summary_short": string,',
+  '  "what_went_well": string[],',
+  '  "mistakes": string[],',
+  '  "next_improvements": string[],',
+  '  "deep_analysis_md": string',
+  '}',
+  'Write all user-facing strings in Simplified Chinese.',
+  'Keep the bullets concrete and tied to the supplied trade facts, screenshots, plan, and execution timeline.',
+  'Do not rewrite or override the supplied trade facts.',
+  'If evidence is incomplete, say so explicitly in Simplified Chinese instead of omitting fields.',
+].join('\n')
+
 type DeepSeekResponse = {
   error?: {
     message?: string
@@ -65,11 +80,19 @@ const extractJsonPayload = (raw: string) => {
   }
 }
 
-const runDeepSeekAnalysis = async({
-  config,
-  env,
-  promptPreview,
-}: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
+const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
+  const payload = extractJsonPayload(rawOutput)
+  return input.input.prompt_kind === 'trade-review'
+    ? TradeReviewDraftSchema.parse(payload)
+    : AiAnalysisDraftSchema.parse(payload)
+}
+
+const runDeepSeekAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
+  const {
+    config,
+    env,
+    promptPreview,
+  } = input
   if (!env.deepseekApiKey) {
     throw new Error('本地环境中缺少 DEEPSEEK_API_KEY。')
   }
@@ -85,7 +108,10 @@ const runDeepSeekAnalysis = async({
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `${promptPreview}\n\n${JSON_CONTRACT}` },
+        {
+          role: 'user',
+          content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review' ? TRADE_REVIEW_JSON_CONTRACT : JSON_CONTRACT}`,
+        },
       ],
       stream: false,
     }),
@@ -101,7 +127,7 @@ const runDeepSeekAnalysis = async({
     throw new Error('DeepSeek 返回了空的分析结果。')
   }
 
-  const analysis = AiAnalysisDraftSchema.parse(extractJsonPayload(rawOutput))
+  const analysis = parseStructuredOutput(input, rawOutput)
 
   return {
     analysis,

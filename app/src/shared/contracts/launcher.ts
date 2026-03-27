@@ -34,8 +34,18 @@ export const CreateSessionResultSchema = z.object({
   session: SessionSchema,
 })
 
+export const ContinueSessionInputSchema = z.object({
+  session_id: EntityIdSchema,
+})
+
+export const ContinueSessionResultSchema = z.object({
+  session: SessionSchema,
+})
+
 export type SessionBucket = z.infer<typeof SessionBucketSchema>
 export type LauncherSessionSummary = z.infer<typeof LauncherSessionSummarySchema>
 export type LauncherHomePayload = z.infer<typeof LauncherHomePayloadSchema>
 export type CreateSessionInput = z.infer<typeof CreateSessionInputSchema>
 export type CreateSessionResult = z.infer<typeof CreateSessionResultSchema>
+export type ContinueSessionInput = z.infer<typeof ContinueSessionInputSchema>
+export type ContinueSessionResult = z.infer<typeof ContinueSessionResultSchema>

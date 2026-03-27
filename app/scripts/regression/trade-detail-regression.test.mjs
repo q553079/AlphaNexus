@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { aiAdapters } from '../../src/main/ai/registry.ts'
+import { runAiAnalysis } from '../../src/main/ai/service.ts'
 import { savePendingSnip } from '../../src/main/capture/capture-service.ts'
 import {
   closeExistingTrade,
@@ -157,6 +159,49 @@ test('AlphaNexus trade detail regression guards', async(t) => {
         content_block_ids: ['block_trade_layered_ai'],
         occurred_at: '2026-03-26T03:05:00.000Z',
       })
+      insertAiRun(db, nextIso, {
+        id: 'airun_trade_layered_review',
+        session_id: 'session_trade_detail_layered',
+        event_id: 'event_trade_layered_review_ai',
+        prompt_kind: 'trade-review',
+        structured_response_json: JSON.stringify({
+          summary_short: 'trade review structured summary',
+          what_went_well: ['kept the setup evidence'],
+          mistakes: ['exit reasoning was recorded too late'],
+          next_improvements: ['write the result line before final close'],
+          deep_analysis_md: 'trade review markdown body',
+        }),
+      })
+      insertAnalysisCard(db, nextIso, {
+        id: 'analysis_trade_layered_review',
+        ai_run_id: 'airun_trade_layered_review',
+        session_id: 'session_trade_detail_layered',
+        trade_id: 'trade_detail_layered',
+        bias: 'neutral',
+        confidence_pct: 63,
+        summary_short: 'trade review card shell',
+      })
+      insertContentBlock(db, nextIso, {
+        id: 'block_trade_layered_review_ai',
+        session_id: 'session_trade_detail_layered',
+        event_id: 'event_trade_layered_review_ai',
+        title: 'Trade review AI block',
+        block_type: 'ai-summary',
+        content_md: 'trade review markdown body',
+        context_type: 'event',
+        context_id: 'event_trade_layered_review_ai',
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_trade_layered_review_ai',
+        session_id: 'session_trade_detail_layered',
+        trade_id: 'trade_detail_layered',
+        event_type: 'ai_summary',
+        title: 'Trade review AI',
+        summary: 'trade review structured summary',
+        ai_run_id: 'airun_trade_layered_review',
+        content_block_ids: ['block_trade_layered_review_ai'],
+        occurred_at: '2026-03-26T03:20:00.000Z',
+      })
 
       insertScreenshot(db, nextIso, {
         id: 'shot_trade_layered_exit',
@@ -231,6 +276,13 @@ test('AlphaNexus trade detail regression guards', async(t) => {
       assert.equal(detail.original_plan_blocks.some((block) => block.id === 'block_trade_layered_plan'), true)
       assert.equal(detail.original_plan_blocks.some((block) => block.id === 'block_trade_layered_review'), false)
       assert.deepEqual(detail.linked_ai_cards.map((card) => card.id), ['analysis_trade_layered'])
+      assert.equal(detail.latest_analysis_card?.id, 'analysis_trade_layered')
+      assert.deepEqual(detail.analysis_cards.map((card) => card.id), ['analysis_trade_layered', 'analysis_trade_layered_review'])
+      assert.equal(detail.ai_groups.market_analysis.length, 1)
+      assert.equal(detail.ai_groups.trade_review.length, 1)
+      assert.equal(detail.ai_groups.latest_market_analysis?.analysis_card?.id, 'analysis_trade_layered')
+      assert.equal(detail.ai_groups.latest_trade_review?.analysis_card?.id, 'analysis_trade_layered_review')
+      assert.equal(detail.ai_groups.latest_trade_review?.trade_review_structured?.summary_short, 'trade review structured summary')
       assert.equal(detail.review_blocks.some((block) => block.id === 'block_trade_layered_review'), true)
       assert.equal(detail.review_sections.deviation_analysis.length > 0, true)
       assert.equal(detail.review_sections.result_assessment.length > 0, true)
@@ -429,6 +481,115 @@ test('AlphaNexus trade detail regression guards', async(t) => {
       assert.equal(detailAfterClose.related_events.filter((event) => event.event_type === 'review').length, 1)
       assert.match(detailAfterClose.review_draft_block?.content_md ?? '', /当前结果：已平仓/)
       assert.match(detailAfterClose.review_draft_block?.content_md ?? '', /109/)
+    })
+  })
+
+  await t.test('trade review AI run writes raw, summary, structured fields and appears in trade detail groups', async() => {
+    await withTempDb('trade-detail-ai-review-writeback', async({ paths, db, nextIso }) => {
+      insertPeriod(db, nextIso, { id: 'period_trade_detail_ai_review' })
+      insertContract(db, nextIso, { id: 'contract_trade_detail_ai_review', symbol: 'NQ' })
+      insertSession(db, nextIso, {
+        id: 'session_trade_detail_ai_review',
+        contract_id: 'contract_trade_detail_ai_review',
+        period_id: 'period_trade_detail_ai_review',
+        title: 'trade detail ai review session',
+      })
+      insertTrade(db, nextIso, {
+        id: 'trade_detail_ai_review',
+        session_id: 'session_trade_detail_ai_review',
+        symbol: 'NQ',
+        side: 'long',
+        status: 'closed',
+        quantity: 2,
+        entry_price: 100,
+        stop_loss: 95,
+        take_profit: 110,
+        opened_at: '2026-03-26T04:00:00.000Z',
+        closed_at: '2026-03-26T04:15:00.000Z',
+        exit_price: 108,
+        pnl_r: 1.6,
+        thesis: 'trade review ai writeback thesis',
+      })
+      insertScreenshot(db, nextIso, {
+        id: 'shot_trade_ai_review_setup',
+        session_id: 'session_trade_detail_ai_review',
+        event_id: 'event_trade_ai_review_setup',
+        kind: 'chart',
+        caption: 'setup screenshot',
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_trade_ai_review_setup',
+        session_id: 'session_trade_detail_ai_review',
+        trade_id: 'trade_detail_ai_review',
+        event_type: 'screenshot',
+        title: 'Setup screenshot',
+        summary: 'setup evidence',
+        screenshot_id: 'shot_trade_ai_review_setup',
+        occurred_at: '2026-03-26T03:58:00.000Z',
+      })
+      insertScreenshot(db, nextIso, {
+        id: 'shot_trade_ai_review_exit',
+        session_id: 'session_trade_detail_ai_review',
+        event_id: 'event_trade_ai_review_exit',
+        kind: 'exit',
+        caption: 'exit screenshot',
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_trade_ai_review_exit',
+        session_id: 'session_trade_detail_ai_review',
+        trade_id: 'trade_detail_ai_review',
+        event_type: 'screenshot',
+        title: 'Exit screenshot',
+        summary: 'exit evidence',
+        screenshot_id: 'shot_trade_ai_review_exit',
+        occurred_at: '2026-03-26T04:14:00.000Z',
+      })
+
+      const adapter = aiAdapters.find((item) => item.provider === 'deepseek')
+      assert(adapter?.runAnalysis)
+      const originalRunAnalysis = adapter.runAnalysis
+      adapter.runAnalysis = async(adapterInput) => {
+        assert.equal(adapterInput.input.prompt_kind, 'trade-review')
+        assert.deepEqual(adapterInput.attachment_screenshot_ids, ['shot_trade_ai_review_setup', 'shot_trade_ai_review_exit'])
+        return {
+          model: 'deepseek-review-mock',
+          raw_output: 'raw trade review payload',
+          analysis: {
+            summary_short: 'trade review ai summary',
+            what_went_well: ['kept the setup and exit evidence together'],
+            mistakes: ['execution note arrived too late'],
+            next_improvements: ['write result evaluation before exporting'],
+            deep_analysis_md: '# Trade review\n\nStructured review body.',
+          },
+        }
+      }
+
+      try {
+        const result = await runAiAnalysis(paths, {
+          dataDir: paths.dataDir,
+          vaultDir: paths.vaultDir,
+          deepseekApiKey: 'test-deepseek-key',
+        }, {
+          session_id: 'session_trade_detail_ai_review',
+          trade_id: 'trade_detail_ai_review',
+          screenshot_id: null,
+          provider: 'deepseek',
+          prompt_kind: 'trade-review',
+        })
+
+        assert.equal(result.ai_run.prompt_kind, 'trade-review')
+        assert.equal(result.analysis_card.trade_id, 'trade_detail_ai_review')
+        assert.equal(result.event.trade_id, 'trade_detail_ai_review')
+        assert.match(result.ai_run.raw_response_text, /raw trade review payload/)
+        assert.match(result.ai_run.structured_response_json, /trade review ai summary/)
+
+        const detail = await getTradeDetail(paths, { trade_id: 'trade_detail_ai_review' })
+        assert.equal(detail.ai_groups.trade_review.length, 1)
+        assert.equal(detail.ai_groups.latest_trade_review?.analysis_card?.summary_short, 'trade review ai summary')
+        assert.equal(detail.ai_groups.latest_trade_review?.trade_review_structured?.mistakes[0], 'execution note arrived too late')
+      } finally {
+        adapter.runAnalysis = originalRunAnalysis
+      }
     })
   })
 })

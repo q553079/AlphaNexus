@@ -27,12 +27,16 @@ const buildLabel = (shape: AnnotationShape, annotations: PendingDraftAnnotation[
 export const toPendingDraftAnnotation = (annotation: DraftAnnotation): PendingDraftAnnotation => ({
   shape: annotation.shape,
   label: annotation.label,
+  title: annotation.title,
+  semantic_type: annotation.semantic_type,
   color: annotation.color,
   x1: annotation.x1,
   y1: annotation.y1,
   x2: annotation.x2,
   y2: annotation.y2,
   text: annotation.text,
+  note_md: annotation.note_md,
+  add_to_memory: annotation.add_to_memory,
   stroke_width: annotation.stroke_width,
 })
 
@@ -55,12 +59,16 @@ export const createPendingDraftAnnotation = (
   return {
     shape,
     label,
+    title: label,
+    semantic_type: null,
     color,
     x1: bounds.x1,
     y1: bounds.y1,
     x2: bounds.x2,
     y2: bounds.y2,
     text: shape === 'text' ? '注释' : null,
+    note_md: '',
+    add_to_memory: false,
     stroke_width: shape === 'line' || shape === 'arrow' ? 3 : 2.6,
   }
 }

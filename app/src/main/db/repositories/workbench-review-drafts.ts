@@ -40,11 +40,12 @@ export const upsertTradeReviewDraftBlock = (
   input: {
     trade_id: string
     content_md: string
+    occurred_at?: string
   },
 ) => {
   const trade = loadTradeScope(db, input.trade_id)
   const existing = loadTradeReviewDraftRow(db, input.trade_id)
-  const timestamp = currentIso()
+  const timestamp = input.occurred_at ?? currentIso()
   const summary = buildSummary(input.content_md || TRADE_REVIEW_EVENT_SUMMARY)
 
   const transaction = db.transaction(() => {

@@ -8,6 +8,7 @@ export const EventTypeSchema = z.enum([
   'trade_add',
   'trade_reduce',
   'trade_close',
+  'trade_cancel',
   'screenshot',
   'ai_summary',
   'review',

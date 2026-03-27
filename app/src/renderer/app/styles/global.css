@@ -136,13 +136,15 @@ a {
 .badge-trade_open,
 .badge-trade_add,
 .badge-trade_reduce,
+.badge-trade_cancel,
 .badge-screenshot {
   background: rgba(188, 127, 74, 0.14);
   color: var(--accent-warm);
 }
 
 .badge-trade_close,
-.badge-closed {
+.badge-closed,
+.badge-canceled {
   background: rgba(53, 92, 90, 0.12);
   color: var(--accent);
 }

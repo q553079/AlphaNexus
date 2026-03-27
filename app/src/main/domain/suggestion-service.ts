@@ -85,11 +85,14 @@ export type AnnotationSuggestionPayload = {
 }
 
 export type ComposerSuggestionKind = 'phrase' | 'template' | 'completion'
+export type ComposerSuggestionSourceKind = 'system-template' | 'rule' | 'knowledge' | 'ai' | 'history'
 
 export type ComposerAiSuggestion = {
   id: string
   kind: ComposerSuggestionKind
+  label: string
   text: string
+  source_kind: ComposerSuggestionSourceKind
   rank_score: number
   reason_summary: string
   source_card_id: string | null
@@ -223,6 +226,34 @@ const geometryFromReference = (reference: SuggestionAnnotationRow | null, index:
   }
 }
 
+const fallbackSemanticByIndex: AnnotationSemanticType[] = [
+  'support',
+  'entry',
+  'path',
+  'invalidation',
+  'target',
+  'context',
+]
+
+const semanticFromContext = (
+  event: SuggestionEventRow | null,
+  annotation: SuggestionAnnotationRow | null,
+  index: number,
+): AnnotationSemanticType => {
+  const annotationLabel = annotation?.label.toLowerCase() ?? ''
+  const eventText = `${event?.title ?? ''} ${event?.summary ?? ''}`.toLowerCase()
+  if (annotationLabel.includes('support')) {
+    return 'support'
+  }
+  if (annotationLabel.includes('entry') || eventText.includes('进场') || eventText.includes('entry')) {
+    return 'entry'
+  }
+  if (eventText.includes('失效') || eventText.includes('stop') || eventText.includes('止损')) {
+    return 'invalidation'
+  }
+  return fallbackSemanticByIndex[index % fallbackSemanticByIndex.length]
+}
+
 const evidenceFromContext = (
   knowledgeCard: { id: string, title: string, summary: string },
   event: SuggestionEventRow | null,
@@ -252,6 +283,28 @@ const evidenceFromContext = (
   return evidence
 }
 
+const buildContextOnlyEvidence = (
+  event: SuggestionEventRow | null,
+  annotation: SuggestionAnnotationRow | null,
+): SuggestionEvidence[] => {
+  const evidence: SuggestionEvidence[] = []
+  if (event) {
+    evidence.push({
+      source: 'event',
+      ref_id: event.id,
+      excerpt: truncate(`${event.title} ${event.summary}`, 120),
+    })
+  }
+  if (annotation) {
+    evidence.push({
+      source: 'annotation',
+      ref_id: annotation.id,
+      excerpt: truncate(`${annotation.label} ${annotation.text ?? annotation.shape}`, 80),
+    })
+  }
+  return evidence
+}
+
 export const generateAiAnnotationSuggestions = async(
   paths: LocalFirstPaths,
   rawInput: unknown,
@@ -274,31 +327,44 @@ export const generateAiAnnotationSuggestions = async(
     }),
   ])
 
-  const suggestions: AnnotationSuggestion[] = knowledgeHits.slice(0, input.max_items).map((card, index) => {
-    const semantic = semanticFromCardType(card.card_type)
+  const suggestions: AnnotationSuggestion[] = Array.from({ length: input.max_items }, (_, index) => {
     const event = events[index % Math.max(1, events.length)] ?? null
     const annotation = annotations[index % Math.max(1, annotations.length)] ?? null
+    const card = knowledgeHits.length > 0
+      ? knowledgeHits[index % knowledgeHits.length] ?? null
+      : null
+    const semantic = card
+      ? semanticFromCardType(card.card_type)
+      : semanticFromContext(event, annotation, index)
     const geometry = geometryFromReference(annotation, index)
     const scoreBase = 0.58 + (0.05 * Math.min(index, 4))
     const confidence = normalizeScore(
       scoreBase
+      + (card ? 0.06 : 0)
       + (annotation ? 0.08 : 0)
       + (event ? 0.06 : 0),
     )
+
     return {
       id: `annotation_suggestion_${randomUUID()}`,
       label: `AI-${semantic.toUpperCase().slice(0, 2)}${index + 1}`,
-      title: truncate(card.title, 48),
+      title: card
+        ? truncate(card.title, 48)
+        : truncate(annotation?.label ?? event?.title ?? `Context area ${index + 1}`, 48),
       semantic_type: semantic,
       shape: shapeFromSemantic(semantic),
       geometry,
-      reason_summary: truncate(`基于 approved knowledge "${card.title}" 与当前 session 事件上下文生成。`, 120),
+      reason_summary: card
+        ? truncate(`基于 approved knowledge "${card.title}" 与当前 session 事件上下文生成。`, 120)
+        : truncate('基于当前 session 事件与现有标注生成候选层建议。', 120),
       confidence_score: confidence,
-      evidence: evidenceFromContext(
-        { id: card.id, title: card.title, summary: card.summary },
-        event,
-        annotation,
-      ),
+      evidence: card
+        ? evidenceFromContext(
+          { id: card.id, title: card.title, summary: card.summary },
+          event,
+          annotation,
+        )
+        : buildContextOnlyEvidence(event, annotation),
     }
   })
 
@@ -330,6 +396,24 @@ const buildTemplateSuggestionText = (title: string) => [
   '执行计划：',
 ].join('\n')
 
+const buildSystemTemplateSuggestion = (): ComposerAiSuggestion => ({
+  id: `composer_suggestion_${randomUUID()}`,
+  kind: 'template',
+  label: '系统模板',
+  text: [
+    '观点：',
+    '关键区域：',
+    '触发条件：',
+    '失效条件：',
+    '执行计划：',
+  ].join('\n'),
+  source_kind: 'system-template',
+  rank_score: normalizeScore(0.42),
+  reason_summary: '当前没有足够的上下文命中，回退到本地结构化模板。',
+  source_card_id: null,
+  evidence: [],
+})
+
 export const generateComposerAiSuggestions = async(
   paths: LocalFirstPaths,
   rawInput: unknown,
@@ -352,7 +436,9 @@ export const generateComposerAiSuggestions = async(
     suggestions.push({
       id: `composer_suggestion_${randomUUID()}`,
       kind: 'phrase',
+      label: card.title,
       text: truncate(`${card.title}: ${card.summary}`, 180),
+      source_kind: 'knowledge',
       rank_score: normalizeScore(0.78),
       reason_summary: '匹配 approved knowledge 与当前合约上下文。',
       source_card_id: card.id,
@@ -365,7 +451,9 @@ export const generateComposerAiSuggestions = async(
     suggestions.push({
       id: `composer_suggestion_${randomUUID()}`,
       kind: 'template',
+      label: `结构化模板 · ${card.title}`,
       text: buildTemplateSuggestionText(card.title),
+      source_kind: 'knowledge',
       rank_score: normalizeScore(0.71),
       reason_summary: '用于快速结构化记录当前观点与失效条件。',
       source_card_id: card.id,
@@ -382,7 +470,9 @@ export const generateComposerAiSuggestions = async(
     suggestions.push({
       id: `composer_suggestion_${randomUUID()}`,
       kind: 'phrase',
+      label: '引用最近事件',
       text: truncate(`事件更新：${event.title}，${event.summary}`, 180),
+      source_kind: 'history',
       rank_score: normalizeScore(0.69),
       reason_summary: '引用最近事件流，避免记录与上下文脱节。',
       source_card_id: null,
@@ -400,7 +490,9 @@ export const generateComposerAiSuggestions = async(
     suggestions.push({
       id: `composer_suggestion_${randomUUID()}`,
       kind: 'completion',
+      label: '补全当前观点',
       text: truncate(`${seed}，若确认量价继续配合，则按计划执行，不做追单。`, 180),
+      source_kind: 'rule',
       rank_score: normalizeScore(0.74),
       reason_summary: '基于当前输入前缀生成补全候选。',
       source_card_id: null,
@@ -415,6 +507,9 @@ export const generateComposerAiSuggestions = async(
   const ranked = suggestions
     .sort((left, right) => right.rank_score - left.rank_score)
     .slice(0, input.max_items)
+  if (ranked.length === 0) {
+    ranked.push(buildSystemTemplateSuggestion())
+  }
 
   const runId = `composer_suggestion_run_${randomUUID()}`
   const audit = await appendSuggestionAuditRecord(paths, {

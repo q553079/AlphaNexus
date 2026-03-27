@@ -61,6 +61,9 @@ type InternalAnnotationSuggestion = z.infer<typeof InternalAnnotationSuggestionS
 type InternalAnnotationSuggestionShape = InternalAnnotationSuggestion['shape']
 type InternalAnnotationSemanticType = InternalAnnotationSuggestion['semantic_type']
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
 const suggestionKindToAuditKind = (
   kind: ApplySuggestionActionInput['suggestion_kind'],
 ): SuggestionAuditKind => {
@@ -105,13 +108,17 @@ const toFormalAnnotationDraft = (
 ): Omit<AnnotationRecord, 'id' | 'schema_version' | 'created_at'> => ({
   screenshot_id: screenshotId,
   shape: toAnnotationShape(suggestion.shape),
-  label: truncate(suggestion.title, 48),
+  label: truncate(suggestion.label, 32),
+  title: truncate(suggestion.title, 120),
+  semantic_type: suggestion.semantic_type,
   color: annotationColorBySemantic(suggestion.semantic_type),
   x1: suggestion.geometry.x1,
   y1: suggestion.geometry.y1,
   x2: suggestion.geometry.x2,
   y2: suggestion.geometry.y2,
-  text: suggestion.reason_summary,
+  text: suggestion.title,
+  note_md: suggestion.reason_summary,
+  add_to_memory: false,
   stroke_width: 2,
   deleted_at: null,
 })
@@ -196,21 +203,49 @@ const resolveMergeTarget = (
 const mergeAnnotation = (
   target: AnnotationRecord,
   suggestion: InternalAnnotationSuggestion,
-): Pick<AnnotationRecord, 'id' | 'screenshot_id' | 'shape' | 'label' | 'color' | 'x1' | 'y1' | 'x2' | 'y2' | 'text' | 'stroke_width'> => ({
+): Pick<AnnotationRecord, 'id' | 'screenshot_id' | 'shape' | 'label' | 'title' | 'semantic_type' | 'color' | 'x1' | 'y1' | 'x2' | 'y2' | 'text' | 'note_md' | 'add_to_memory' | 'stroke_width'> => ({
   id: target.id,
   screenshot_id: target.screenshot_id,
   shape: target.shape,
   label: target.label.includes(suggestion.title)
     ? target.label
     : truncate(`${target.label} / ${suggestion.title}`, 64),
+  title: target.title.includes(suggestion.title)
+    ? target.title
+    : truncate(`${target.title} / ${suggestion.title}`, 120),
+  semantic_type: target.semantic_type ?? suggestion.semantic_type,
   color: target.color,
   x1: target.x1,
   y1: target.y1,
   x2: target.x2,
   y2: target.y2,
-  text: combineDistinctSegments(target.text, suggestion.title, suggestion.reason_summary),
+  text: combineDistinctSegments(target.text, suggestion.title),
+  note_md: combineDistinctSegments(target.note_md, suggestion.reason_summary),
+  add_to_memory: target.add_to_memory,
   stroke_width: target.stroke_width,
 })
+
+const resolveSuggestionAuditSnapshot = async(
+  paths: LocalFirstPaths,
+  kind: SuggestionAuditKind,
+  suggestionId: string,
+) => {
+  const auditHit = await findSuggestionAuditItem(paths, {
+    kind,
+    suggestion_id: suggestionId,
+  })
+  if (!auditHit) {
+    return null
+  }
+
+  return {
+    audit: auditHit.record,
+    suggestion_snapshot: auditHit.item,
+    source_run_id: isRecord(auditHit.record.payload) && typeof auditHit.record.payload.run_id === 'string'
+      ? auditHit.record.payload.run_id
+      : null,
+  }
+}
 
 const resolveAnnotationSuggestionFromAudit = async(
   paths: LocalFirstPaths,
@@ -252,15 +287,20 @@ export const applySuggestionAction = async(
   const status = statusFromAction(input.action)
 
   if (input.suggestion_kind !== 'annotation') {
+    const snapshot = await resolveSuggestionAuditSnapshot(paths, auditKind, input.suggestion_id)
     const actionAudit = await appendSuggestionAuditRecord(paths, {
       kind: auditKind,
       audit_type: 'action',
+      session_id: snapshot?.audit.session_id ?? null,
       payload: {
         suggestion_id: input.suggestion_id,
         suggestion_kind: input.suggestion_kind,
         action: input.action,
         status,
         applied_effect: 'audit-only',
+        source_audit_id: snapshot?.audit.id ?? null,
+        source_run_id: snapshot?.source_run_id ?? null,
+        suggestion_snapshot: snapshot?.suggestion_snapshot ?? null,
       },
     })
 

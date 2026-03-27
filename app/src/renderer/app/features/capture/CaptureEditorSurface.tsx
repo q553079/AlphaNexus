@@ -37,6 +37,7 @@ type CaptureEditorSurfaceProps = {
   activeAnnotationIndex: number | null
   allowCrop?: boolean
   annotations: PendingDraftAnnotation[]
+  candidateAnnotations?: PendingDraftAnnotation[]
   disabled?: boolean
   imageAlt: string
   imageUrl: string
@@ -176,6 +177,7 @@ const renderAnnotation = (
   arrowMarkerId: string,
   options?: {
     active?: boolean
+    candidate?: boolean
     preview?: boolean
   },
 ) => {
@@ -186,6 +188,7 @@ const renderAnnotation = (
   const className = [
     'capture-editor__shape',
     options?.active ? 'is-active' : '',
+    options?.candidate ? 'is-candidate' : '',
     options?.preview ? 'is-preview' : '',
   ].filter(Boolean).join(' ')
 
@@ -264,6 +267,7 @@ export const CaptureEditorSurface = ({
   activeAnnotationIndex,
   allowCrop = false,
   annotations,
+  candidateAnnotations = [],
   disabled = false,
   imageAlt,
   imageUrl,
@@ -474,6 +478,10 @@ export const CaptureEditorSurface = ({
               <path d="M0,0 L7,3.5 L0,7 z" fill="#9c3d30" />
             </marker>
           </defs>
+          {selectionBounds ? candidateAnnotations.map((annotation) =>
+            renderAnnotation(annotation, selectionBounds, arrowMarkerId, {
+              candidate: true,
+            })) : null}
           {selectionBounds ? annotations.map((annotation, index) =>
             renderAnnotation(annotation, selectionBounds, arrowMarkerId, {
               active: index === activeAnnotationIndex,

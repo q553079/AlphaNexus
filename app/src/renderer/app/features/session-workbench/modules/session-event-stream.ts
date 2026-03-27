@@ -51,6 +51,7 @@ const strongTradeTypes = new Set<EventRecord['event_type']>([
   'trade_add',
   'trade_reduce',
   'trade_close',
+  'trade_cancel',
 ])
 
 const noteReviewTypes = new Set<EventRecord['event_type']>([

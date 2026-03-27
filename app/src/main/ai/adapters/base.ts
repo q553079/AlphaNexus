@@ -7,6 +7,7 @@ import type {
   MockAiRunResult,
   RunAiAnalysisInput,
   RunMockAiAnalysisInput,
+  TradeReviewDraft,
 } from '@shared/ai/contracts'
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
 
@@ -18,10 +19,11 @@ export type AiAdapterRunInput = {
   payload: SessionWorkbenchPayload
   promptPreview: string
   providerSecret: ProviderSecretResolution
+  attachment_screenshot_ids?: string[]
 }
 
 export type AiAdapterRunResult = {
-  analysis: AiAnalysisDraft
+  analysis: AiAnalysisDraft | TradeReviewDraft
   model: string
   raw_output: string
 }

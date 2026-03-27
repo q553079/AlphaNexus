@@ -3,7 +3,10 @@ import test from 'node:test'
 import {
   adoptMarketAnchor,
   buildActiveAnchorRuntimeSummary,
+  getApprovedKnowledgeRuntime,
   getMarketAnchor,
+  ingestKnowledgeSource,
+  reviewKnowledgeDraftCard,
   updatePersistedMarketAnchorStatus,
 } from '../../src/main/domain/knowledge-service.ts'
 import { getTradeEvaluationSummary, getPeriodEvaluationRollup } from '../../src/main/evaluation/evaluation-service.ts'
@@ -24,6 +27,72 @@ import {
 } from './helpers.mjs'
 
 test('AlphaNexus knowledge regression guards', async(t) => {
+  await t.test('knowledge draft edit-approve publishes approved runtime hits with scoped fields', async() => {
+    await withTempDb('knowledge-review-runtime', async({ paths }) => {
+      const ingested = await ingestKnowledgeSource(paths, {
+        source_type: 'article',
+        title: 'VWAP reclaim handbook',
+        contract_scope: 'NQ',
+        timeframe_scope: '5m',
+        tags: ['opening-drive', 'support'],
+        extraction_mode: 'heuristic',
+        content_md: [
+          '# VWAP reclaim continuation',
+          '',
+          'setup: 重新站上 VWAP 后，等待第一次回踩不破再考虑顺势参与。',
+          '',
+          'entry-rule: 回踩重新吸收时入场，不在第一根扩展 K 上追价。',
+          '',
+          'invalidation: 跌回 VWAP 下方并反抽失败时，放弃延续假设。',
+          '',
+          'risk-rule: 单次风险不超过账户 1%。',
+        ].join('\n'),
+      })
+
+      assert.equal(ingested.draft_cards.length > 0, true)
+      const reviewed = await reviewKnowledgeDraftCard(paths, {
+        knowledge_card_id: ingested.draft_cards[0].id,
+        action: 'edit-approve',
+        reviewed_by: 'regression',
+        review_note_md: 'promote after scoped edit',
+        edit_payload: {
+          card_type: 'setup',
+          title: 'VWAP reclaim continuation',
+          summary: '重新站上 VWAP 后，第一次回踩不破才按延续处理。',
+          content_md: '重新站上 VWAP 后，等待第一次回踩不破，再按延续处理。',
+          trigger_conditions_md: '- 第一次回踩不破\n- 买盘重新吸收',
+          invalidation_md: '跌回 VWAP 下方并反抽失败。',
+          risk_rule_md: '单次风险不超过账户 1%。',
+          contract_scope: ['NQ'],
+          timeframe_scope: ['5m'],
+          tags: ['opening-drive', 'support'],
+        },
+      })
+
+      assert.equal(reviewed.status, 'approved')
+      assert.equal(reviewed.title, 'VWAP reclaim continuation')
+      assert.equal(reviewed.contract_scope, 'NQ')
+      assert.equal(reviewed.timeframe_scope, '5m')
+      assert.equal(reviewed.tags_json, JSON.stringify(['opening-drive', 'support']))
+
+      const runtime = await getApprovedKnowledgeRuntime(paths, {
+        contract_scope: 'NQ',
+        timeframe_scope: '5m',
+        tags: ['opening-drive'],
+        annotation_semantic: 'support',
+        trade_state: 'pre_entry',
+        context_tags: ['opening-drive'],
+        limit: 4,
+      })
+
+      assert.equal(runtime.hits.length, 1)
+      assert.equal(runtime.hits[0]?.knowledge_card_id, reviewed.id)
+      assert.equal(runtime.hits[0]?.relevance_score >= 0.55, true)
+      assert.equal(runtime.hits[0]?.fragment_excerpt.length > 0, true)
+      assert.equal(runtime.hits[0]?.match_reasons.some((reason) => reason.includes('annotation_semantic=support')), true)
+    })
+  })
+
   await t.test('anchor persistence and filters stay correct', async() => {
     await withTempDb('anchor-guards', async({ paths, db, nextIso }) => {
       insertPeriod(db, nextIso, { id: 'period_anchor' })

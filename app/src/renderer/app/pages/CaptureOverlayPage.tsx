@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 import type { PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
+import {
+  renderAnnotatedImageDataUrl,
+  serializeAnnotationDocument,
+} from '@app/features/annotation/annotation-export'
 import { CaptureEditorSurface } from '@app/features/capture/CaptureEditorSurface'
 import { CaptureOverlayComposer } from '@app/features/capture/CaptureOverlayComposer'
 import type { CaptureSelection, PendingSnipCapture } from '@shared/capture/contracts'
@@ -136,7 +140,7 @@ export const CaptureOverlayPage = () => {
     }
   }
 
-  const buildSaveInput = (
+  const buildSaveInput = async(
     input: {
       run_ai: boolean
       kind?: PendingSnipCapture['kind']
@@ -145,6 +149,21 @@ export const CaptureOverlayPage = () => {
     if (!selection || !pending) {
       return null
     }
+
+    const effectiveAnnotations = annotations.length > 0 ? annotations : []
+    const annotated_image_data_url = await renderAnnotatedImageDataUrl({
+      image_url: pending.source_data_url,
+      source_width: pending.source_width,
+      source_height: pending.source_height,
+      selection,
+      annotations: effectiveAnnotations,
+    })
+    const annotation_document_json = serializeAnnotationDocument({
+      source_width: pending.source_width,
+      source_height: pending.source_height,
+      selection,
+      annotations: effectiveAnnotations,
+    })
 
     return {
       selection,
@@ -156,8 +175,10 @@ export const CaptureOverlayPage = () => {
         source_view: 'capture-overlay' as const,
         kind: pending.kind,
       },
-      annotations: annotations.length > 0 ? annotations : undefined,
+      annotations: effectiveAnnotations.length > 0 ? effectiveAnnotations : undefined,
       note_text: noteText.trim() || undefined,
+      annotated_image_data_url,
+      annotation_document_json,
       run_ai: input.run_ai,
       kind: input.kind,
     }
@@ -174,14 +195,17 @@ export const CaptureOverlayPage = () => {
 
     try {
       setBusy(true)
-      const saveInput = buildSaveInput(input)
+      const saveInput = await buildSaveInput(input)
       if (!saveInput) {
         return
       }
 
       const result = await alphaNexusApi.capture.savePendingSnip(saveInput)
+      const resolutionNote = result.resolved_target?.resolution_note
       if (result.ai_error) {
-        setMessage(`已完成本地保存，AI 未完成：${result.ai_error}`)
+        setMessage(`已完成本地保存，AI 未完成：${result.ai_error}${resolutionNote ? ` ${resolutionNote}` : ''}`)
+      } else if (resolutionNote) {
+        setMessage(resolutionNote)
       }
     } catch (error) {
       setMessage(error instanceof Error ? `保存失败：${error.message}` : '保存选区失败。')

@@ -13,12 +13,13 @@ import type { AiProviderConfig, AiRunExecutionResult } from '@shared/ai/contract
 import type { CurrentContext } from '@shared/contracts/current-context'
 import {
   SavePendingSnipResultSchema,
+  type CaptureTargetResolution,
   type PendingSnipAnnotationInput,
   type PendingSnipCapture,
   type SavePendingSnipResult,
 } from '@shared/capture/contracts'
 
-const analysisProviderPriority = ['custom-http', 'deepseek', 'openai', 'anthropic'] as const
+const analysisProviderPriority = ['openai', 'deepseek', 'anthropic', 'custom-http'] as const
 const captureKindTitles = {
   chart: '截图',
   execution: '执行截图',
@@ -32,6 +33,7 @@ const tradeStatusLabels = {
   planned: '计划中',
   open: '持仓中',
   closed: '已关闭',
+  canceled: '已取消',
 } as const
 
 const hasOwn = <T extends object>(value: T | undefined, key: keyof T) =>
@@ -52,6 +54,52 @@ export const buildCaptureAssetPath = async(paths: LocalFirstPaths, sessionId: st
 
   await mkdir(targetDirectory, { recursive: true })
   return targetPath
+}
+
+const decodeDataUrlToBuffer = (dataUrl: string) => {
+  const match = dataUrl.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$/)
+  if (!match) {
+    throw new Error('标注图片数据格式无效，无法保存本地文件。')
+  }
+
+  return Buffer.from(match[2], 'base64')
+}
+
+export const persistCaptureDerivedAssets = async(
+  paths: LocalFirstPaths,
+  sessionId: string,
+  input: {
+    annotated_image_data_url?: string
+    annotation_document_json?: string
+  },
+) => {
+  const annotatedImageDataUrl = input.annotated_image_data_url?.trim()
+  const annotationDocumentJson = input.annotation_document_json?.trim()
+  const annotatedAsset = annotatedImageDataUrl
+    ? await (async() => {
+      const annotatedPath = await buildCaptureAssetPath(paths, sessionId, '.annotated.png')
+      await writeFile(annotatedPath, decodeDataUrlToBuffer(annotatedImageDataUrl))
+      return {
+        annotated_file_path: path.relative(paths.vaultDir, annotatedPath),
+        annotated_asset_url: toCaptureFileUrl(annotatedPath),
+      }
+    })()
+    : {
+      annotated_file_path: null,
+      annotated_asset_url: null,
+    }
+  const annotationDocumentAsset = annotationDocumentJson
+    ? await (async() => {
+      const documentPath = await buildCaptureAssetPath(paths, sessionId, '.annotations.json')
+      await writeFile(documentPath, annotationDocumentJson, 'utf8')
+      return path.relative(paths.vaultDir, documentPath)
+    })()
+    : null
+
+  return {
+    ...annotatedAsset,
+    annotations_json_path: annotationDocumentAsset,
+  }
 }
 
 const loadCaptureScope = async(paths: LocalFirstPaths, sessionId: string) => {
@@ -93,7 +141,7 @@ const loadCaptureTradeTargets = async(paths: LocalFirstPaths, sessionId: string)
     id: string
     symbol: string
     side: 'long' | 'short'
-    status: 'planned' | 'open' | 'closed'
+    status: 'planned' | 'open' | 'closed' | 'canceled'
     quantity: number
     opened_at: string
   }>
@@ -164,6 +212,8 @@ export type ResolvedSaveTarget = {
   trade_id: string | null
   source_view: PendingSnipCapture['source_view']
   kind: PendingSnipCapture['kind']
+  target_label: string
+  resolution_note: string | null
 }
 
 export const resolvePendingSaveTarget = async(
@@ -195,10 +245,26 @@ export const resolvePendingSaveTarget = async(
   const effectiveTradeId = kind === 'exit'
     ? openTradeTarget?.trade_id ?? requestedTradeId
     : requestedTradeId
+  const resolvedTradeTarget = effectiveTradeId
+    ? tradeTargets.find((target) => target.trade_id === effectiveTradeId) ?? null
+    : null
 
   if (effectiveTradeId && !tradeTargets.some((target) => target.trade_id === effectiveTradeId)) {
     throw new Error(`交易 ${effectiveTradeId} 不属于 Session ${requestedSessionId}。`)
   }
+
+  const resolutionNote = (() => {
+    if (kind !== 'exit') {
+      return null
+    }
+    if (openTradeTarget?.trade_id && effectiveTradeId === openTradeTarget.trade_id && requestedTradeId !== openTradeTarget.trade_id) {
+      return `Exit 已自动挂到当前 open trade：${openTradeTarget.label}。`
+    }
+    if (!openTradeTarget && effectiveTradeId == null) {
+      return '当前没有 open trade，本次 Exit 已降级保存到当前 Session 目标。'
+    }
+    return null
+  })()
 
   return {
     session_id: requestedSessionId,
@@ -207,6 +273,8 @@ export const resolvePendingSaveTarget = async(
     trade_id: effectiveTradeId ?? null,
     source_view: input.target_context?.source_view ?? pendingCapture.source_view ?? 'capture-overlay',
     kind,
+    target_label: resolvedTradeTarget?.label ?? sessionScope.session_title,
+    resolution_note: resolutionNote,
   }
 }
 
@@ -217,9 +285,17 @@ export const persistSnipSelection = async(
   image: CaptureImageAsset,
   noteText?: string,
   annotations?: PendingSnipAnnotationInput[],
+  derivedAssets?: {
+    annotated_image_data_url?: string
+    annotation_document_json?: string
+  },
 ): Promise<SavePendingSnipResult> => {
   const targetPath = await buildCaptureAssetPath(paths, saveTarget.session_id, '.png')
   await writeFile(targetPath, image.toPNG())
+  const derived = await persistCaptureDerivedAssets(paths, saveTarget.session_id, {
+    annotated_image_data_url: derivedAssets?.annotated_image_data_url,
+    annotation_document_json: derivedAssets?.annotation_document_json,
+  })
 
   const db = await getDatabase(paths)
   const created = createCapturedScreenshotArtifactsForContext(db, {
@@ -228,6 +304,11 @@ export const persistSnipSelection = async(
     kind: saveTarget.kind,
     file_path: path.relative(paths.vaultDir, targetPath),
     asset_url: toCaptureFileUrl(targetPath),
+    raw_file_path: path.relative(paths.vaultDir, targetPath),
+    raw_asset_url: toCaptureFileUrl(targetPath),
+    annotated_file_path: derived.annotated_file_path,
+    annotated_asset_url: derived.annotated_asset_url,
+    annotations_json_path: derived.annotations_json_path,
     caption: buildSnipCaption(pendingCapture, saveTarget.kind),
     width: image.getSize().width,
     height: image.getSize().height,
@@ -243,12 +324,21 @@ export const persistSnipSelection = async(
   }
 
   const screenshot = loadScreenshotById(db, created.screenshot_id)
+  const resolvedTarget: CaptureTargetResolution = {
+    target_kind: saveTarget.trade_id ? 'trade' : 'session',
+    session_id: saveTarget.session_id,
+    trade_id: saveTarget.trade_id,
+    target_label: saveTarget.target_label,
+    capture_kind: saveTarget.kind,
+    resolution_note: saveTarget.resolution_note,
+  }
   return SavePendingSnipResultSchema.parse({
     screenshot,
     created_event_id: created.event_id,
     created_note_block_id: created.content_block_id,
     ai_run_id: null,
     ai_error: null,
+    resolved_target: resolvedTarget,
   })
 }
 

@@ -3,14 +3,16 @@ import type { IpcRendererEvent } from 'electron'
 import type { AlphaNexusApi } from '@shared/contracts/workbench'
 import type { ReviewableMemoryActionInput } from '@shared/contracts/evaluation'
 import type { ExportSessionMarkdownInput } from '@shared/export/contracts'
-import type { CreateSessionInput } from '@shared/contracts/launcher'
+import type { ContinueSessionInput, CreateSessionInput } from '@shared/contracts/launcher'
 import type {
   ApplySuggestionActionInput,
   AdoptMarketAnchorInput,
   GetActiveMarketAnchorsInput,
   GetAnchorReviewSuggestionsInput,
   AddToTradeInput,
+  CancelTradeInput,
   MoveContentBlockInput,
+  MoveScreenshotInput,
   SetAiRecordDeletedInput,
   SetAnnotationDeletedInput,
   GetCurrentContextInput,
@@ -42,6 +44,7 @@ import type {
   SetScreenshotDeletedInput,
   SnipCaptureSelectionInput,
   SetContentBlockDeletedInput,
+  UpdateAnnotationInput,
   UpdateMarketAnchorStatusInput,
 } from '@shared/contracts/workbench'
 import type {
@@ -60,6 +63,7 @@ const api: AlphaNexusApi = {
   launcher: {
     getHome: () => ipcRenderer.invoke('launcher:get-home'),
     createSession: (input: CreateSessionInput) => ipcRenderer.invoke('launcher:create-session', input),
+    continueSession: (input: ContinueSessionInput) => ipcRenderer.invoke('launcher:continue-session', input),
   },
   workbench: {
     getSession: (input?: GetSessionWorkbenchInput) => ipcRenderer.invoke('workbench:get-session', input),
@@ -87,12 +91,17 @@ const api: AlphaNexusApi = {
     addToTrade: (input: AddToTradeInput) => ipcRenderer.invoke('workbench:add-trade', input),
     reduceTrade: (input: ReduceTradeInput) => ipcRenderer.invoke('workbench:reduce-trade', input),
     closeTrade: (input: CloseTradeInput) => ipcRenderer.invoke('workbench:close-trade', input),
+    cancelTrade: (input: CancelTradeInput) => ipcRenderer.invoke('workbench:cancel-trade', input),
     saveRealtimeView: (input: SaveSessionRealtimeViewInput) => ipcRenderer.invoke('workbench:save-realtime-view', input),
+    createNoteBlock: (input) => ipcRenderer.invoke('workbench:create-note-block', input),
+    updateNoteBlock: (input) => ipcRenderer.invoke('workbench:update-note-block', input),
     moveContentBlock: (input: MoveContentBlockInput) => ipcRenderer.invoke('workbench:move-content-block', input),
+    moveScreenshot: (input: MoveScreenshotInput) => ipcRenderer.invoke('workbench:move-screenshot', input),
     deleteContentBlock: (input: SetContentBlockDeletedInput) => ipcRenderer.invoke('workbench:delete-content-block', input),
     restoreContentBlock: (input: SetContentBlockDeletedInput) => ipcRenderer.invoke('workbench:restore-content-block', input),
     deleteScreenshot: (input: SetScreenshotDeletedInput) => ipcRenderer.invoke('workbench:delete-screenshot', input),
     restoreScreenshot: (input: SetScreenshotDeletedInput) => ipcRenderer.invoke('workbench:restore-screenshot', input),
+    updateAnnotation: (input: UpdateAnnotationInput) => ipcRenderer.invoke('workbench:update-annotation', input),
     deleteAnnotation: (input: SetAnnotationDeletedInput) => ipcRenderer.invoke('workbench:delete-annotation', input),
     restoreAnnotation: (input: SetAnnotationDeletedInput) => ipcRenderer.invoke('workbench:restore-annotation', input),
     deleteAiRecord: (input: SetAiRecordDeletedInput) => ipcRenderer.invoke('workbench:delete-ai-record', input),

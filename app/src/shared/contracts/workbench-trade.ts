@@ -38,6 +38,12 @@ export const CloseTradeInputSchema = z.object({
   closed_at: IsoDateTimeSchema.optional(),
 })
 
+export const CancelTradeInputSchema = z.object({
+  trade_id: EntityIdSchema,
+  canceled_at: IsoDateTimeSchema.optional(),
+  reason_md: z.string().trim().max(2_000).optional(),
+})
+
 export const TradeMutationResultSchema = z.object({
   trade: TradeSchema,
   event: EventSchema,
@@ -53,4 +59,5 @@ export type OpenTradeInput = z.infer<typeof OpenTradeInputSchema>
 export type AddToTradeInput = z.infer<typeof AddToTradeInputSchema>
 export type ReduceTradeInput = z.infer<typeof ReduceTradeInputSchema>
 export type CloseTradeInput = z.infer<typeof CloseTradeInputSchema>
+export type CancelTradeInput = z.infer<typeof CancelTradeInputSchema>
 export type TradeMutationResult = z.infer<typeof TradeMutationResultSchema>

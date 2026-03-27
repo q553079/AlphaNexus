@@ -252,21 +252,81 @@ export const insertDraftKnowledgeCards = (
 
 export type ReviewKnowledgeCardInput = {
   knowledge_card_id: string
-  action: 'approve' | 'archive'
+  action: 'approve' | 'edit-approve' | 'archive'
   reviewed_by?: string | null
   review_note_md?: string | null
+  edit_payload?: {
+    card_type?: KnowledgeCardRecord['card_type']
+    title?: string
+    summary?: string
+    content_md?: string
+    trigger_conditions_md?: string
+    invalidation_md?: string
+    risk_rule_md?: string
+    contract_scope?: string[]
+    timeframe_scope?: string[]
+    tags?: string[]
+  }
+}
+
+const joinScope = (value: string[] | undefined, fallback: string) => {
+  if (!value || value.length === 0) {
+    return fallback
+  }
+  const normalized = value
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return normalized.length > 0 ? normalized.join(', ') : fallback
+}
+
+const normalizeTagsJson = (value: string[] | undefined, fallback: string) => {
+  if (!value) {
+    return fallback
+  }
+  const normalized = value
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+  return JSON.stringify([...new Set(normalized)])
 }
 
 export const reviewKnowledgeCard = (db: Database.Database, input: ReviewKnowledgeCardInput): KnowledgeCardRecord => {
   const current = getKnowledgeCardById(db, input.knowledge_card_id)
-  const nextStatus = input.action === 'approve' ? 'approved' : 'archived'
+  const nextStatus = input.action === 'archive' ? 'archived' : 'approved'
   const now = currentIso()
+  const editPayload = input.edit_payload
 
   db.prepare(`
     UPDATE knowledge_cards
-    SET status = ?, updated_at = ?, version = version + 1
+    SET
+      status = ?,
+      updated_at = ?,
+      version = version + 1,
+      card_type = ?,
+      title = ?,
+      summary = ?,
+      content_md = ?,
+      trigger_conditions_md = ?,
+      invalidation_md = ?,
+      risk_rule_md = ?,
+      contract_scope = ?,
+      timeframe_scope = ?,
+      tags_json = ?
     WHERE id = ?
-  `).run(nextStatus, now, input.knowledge_card_id)
+  `).run(
+    nextStatus,
+    now,
+    editPayload?.card_type ?? current.card_type,
+    editPayload?.title?.trim() || current.title,
+    editPayload?.summary ?? current.summary,
+    editPayload?.content_md ?? current.content_md,
+    editPayload?.trigger_conditions_md ?? current.trigger_conditions_md,
+    editPayload?.invalidation_md ?? current.invalidation_md,
+    editPayload?.risk_rule_md ?? current.risk_rule_md,
+    joinScope(editPayload?.contract_scope, current.contract_scope),
+    joinScope(editPayload?.timeframe_scope, current.timeframe_scope),
+    normalizeTagsJson(editPayload?.tags, current.tags_json),
+    input.knowledge_card_id,
+  )
 
   db.prepare(`
     INSERT INTO knowledge_reviews (
@@ -283,6 +343,7 @@ export const reviewKnowledgeCard = (db: Database.Database, input: ReviewKnowledg
     JSON.stringify({
       from_status: current.status,
       to_status: nextStatus,
+      edit_payload: editPayload ?? null,
     }),
   )
 

@@ -77,6 +77,9 @@ export const SessionWorkbenchPage = () => {
           onMoveContentBlock={(block, option) => {
             void workbench.handleMoveContentBlock(block, option)
           }}
+          onMoveScreenshot={(screenshot, option) => {
+            void workbench.handleMoveScreenshot(screenshot, option)
+          }}
           onDeleteScreenshot={(screenshotId) => {
             void workbench.handleDeleteScreenshot(screenshotId)
           }}
@@ -99,7 +102,12 @@ export const SessionWorkbenchPage = () => {
           onSaveAnnotations={() => {
             void workbench.handleSaveAnnotations()
           }}
+          onUpdateAnnotation={(input) => {
+            void workbench.handleUpdateAnnotation(input)
+          }}
           moveTargetOptions={workbench.moveTargetOptions}
+          onSelectScreenshot={workbench.selectScreenshot}
+          screenshotGallery={workbench.screenshotGallery}
           selectedScreenshot={workbench.selectedScreenshot}
         />
 
@@ -121,12 +129,19 @@ export const SessionWorkbenchPage = () => {
           onCloseTrade={(input) => {
             void workbench.handleCloseTrade(input)
           }}
+          onCancelTrade={(input) => {
+            void workbench.handleCancelTrade(input)
+          }}
           onDeleteAiRecord={(aiRunId) => {
             void workbench.handleDeleteAiRecord(aiRunId)
           }}
           onDeleteBlock={(block) => {
             void workbench.handleDeleteBlock(block)
           }}
+          onComposerSuggestionAccept={(suggestion) => {
+            void workbench.handleComposerSuggestionAccept(suggestion)
+          }}
+          onCreateNoteBlock={(input) => workbench.handleCreateNoteBlock(input)}
           onOpenTrade={(input) => {
             void workbench.handleOpenTrade(input)
           }}
@@ -145,6 +160,7 @@ export const SessionWorkbenchPage = () => {
           }}
           onSetAnchorStatus={workbench.handleSetAnchorStatus}
           onTabChange={workbench.setActiveTab}
+          onUpdateNoteBlock={(input) => workbench.handleUpdateNoteBlock(input)}
           payload={workbench.payload}
           realtimeDraft={workbench.realtimeDraft}
           realtimeViewBlock={workbench.realtimeViewBlock}

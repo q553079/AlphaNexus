@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type {
   AddToTradeInput,
+  CancelTradeInput,
   CloseTradeInput,
   OpenTradeInput,
   ReduceTradeInput,
@@ -63,6 +64,18 @@ const requireOpenTrade = (db: Database.Database, tradeId: string) => {
   return trade
 }
 
+const requireCancelableTrade = (db: Database.Database, tradeId: string) => {
+  const trade = loadTradeById(db, tradeId)
+  if (trade.status === 'closed') {
+    throw new Error(`交易 ${tradeId} 已经 closed，不能再取消。`)
+  }
+  if (trade.status === 'canceled') {
+    throw new Error(`交易 ${tradeId} 已经 canceled。`)
+  }
+
+  return trade
+}
+
 const ensureNoOpenTradeForSession = (db: Database.Database, sessionId: string) => {
   const row = db.prepare(`
     SELECT id
@@ -84,7 +97,7 @@ const insertTradeEvent = (
     occurred_at: string
     session_id: string
     trade_id: string
-    event_type: 'trade_open' | 'trade_add' | 'trade_reduce' | 'trade_close'
+    event_type: 'trade_open' | 'trade_add' | 'trade_reduce' | 'trade_close' | 'trade_cancel'
     title: string
     summary: string
   },
@@ -275,6 +288,41 @@ export const closeTrade = (db: Database.Database, input: CloseTradeInput): Trade
       event_type: 'trade_close',
       title: `${trade.symbol} ${sideLabels[trade.side]} 平仓`,
       summary: `平仓价 ${formatNumber(input.exit_price)}，结果 ${formatNumber(pnlR)}R，闭环仓位 ${formatNumber(trade.quantity)}。`,
+    })
+
+    return TradeMutationResultSchema.parse({
+      trade: loadTradeById(db, trade.id),
+      event,
+    })
+  })
+
+  return transaction()
+}
+
+export const cancelTrade = (db: Database.Database, input: CancelTradeInput): TradeMutationResult => {
+  const createdAt = currentIso()
+  const canceledAt = input.canceled_at ?? createdAt
+  const reason = input.reason_md?.trim()
+
+  const transaction = db.transaction(() => {
+    const trade = requireCancelableTrade(db, input.trade_id)
+
+    db.prepare(`
+      UPDATE trades
+      SET status = 'canceled', exit_price = NULL, pnl_r = NULL, closed_at = ?
+      WHERE id = ?
+    `).run(canceledAt, trade.id)
+
+    const event = insertTradeEvent(db, {
+      created_at: createdAt,
+      occurred_at: canceledAt,
+      session_id: trade.session_id,
+      trade_id: trade.id,
+      event_type: 'trade_cancel',
+      title: `${trade.symbol} ${sideLabels[trade.side]} 取消`,
+      summary: reason
+        ? `交易已取消，不计入正常离场结果。原因：${reason}`
+        : '交易已取消，不计入正常离场结果。',
     })
 
     return TradeMutationResultSchema.parse({

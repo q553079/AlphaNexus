@@ -3,12 +3,15 @@ import { getDatabase } from '@main/db/connection'
 import { getFirstId } from '@main/db/repositories/workbench-utils'
 import {
   addToTrade,
+  cancelTrade,
   closeTrade,
+  createWorkbenchNoteBlock,
   createAiAnalysisArtifacts,
   ensureCurrentContext,
   getCurrentContext,
   listCurrentTargetOptions,
   moveContentBlock,
+  moveScreenshot,
   openTrade,
   upsertCurrentContext,
   upsertRealtimeViewBlockForCurrentContext,
@@ -20,6 +23,8 @@ import {
   reduceTrade,
   setContentBlockDeletedState,
   setScreenshotDeletedState,
+  updateAnnotationMetadata,
+  updateWorkbenchNoteBlock,
 } from '@main/db/repositories/workbench-repository'
 import { getTradeEvaluationSummary } from '@main/evaluation/evaluation-service'
 import { getTradeFeedbackBundle } from '@main/feedback/feedback-service'
@@ -28,6 +33,7 @@ import type {
   GetCurrentContextInput,
   ListTargetOptionsInput,
   MoveContentBlockInput,
+  MoveScreenshotInput,
   SaveSessionRealtimeViewInput,
   SetCurrentContextInput,
 } from '@shared/contracts/workbench'
@@ -122,6 +128,13 @@ export const closeTradePosition = async(paths: LocalFirstPaths, input: Parameter
   return result
 }
 
+export const cancelTradePosition = async(paths: LocalFirstPaths, input: Parameters<typeof cancelTrade>[1]) => {
+  const db = await getDatabase(paths)
+  const result = cancelTrade(db, input)
+  await ensureTradeReviewDraft(paths, result.trade.id)
+  return result
+}
+
 export const saveSessionRealtimeView = async(paths: LocalFirstPaths, input: SaveSessionRealtimeViewInput) => {
   const db = await getDatabase(paths)
   const existingContext = getCurrentContext(db, {
@@ -140,9 +153,27 @@ export const saveSessionRealtimeView = async(paths: LocalFirstPaths, input: Save
   })
 }
 
+export const createWorkbenchNote = async(paths: LocalFirstPaths, input: Parameters<typeof createWorkbenchNoteBlock>[1]) => {
+  const db = await getDatabase(paths)
+  return createWorkbenchNoteBlock(db, input)
+}
+
+export const updateWorkbenchNote = async(paths: LocalFirstPaths, input: Parameters<typeof updateWorkbenchNoteBlock>[1]) => {
+  const db = await getDatabase(paths)
+  return updateWorkbenchNoteBlock(db, input)
+}
+
 export const moveWorkbenchContentBlock = async(paths: LocalFirstPaths, input: MoveContentBlockInput) => {
   const db = await getDatabase(paths)
   return moveContentBlock(db, input)
+}
+
+export const moveWorkbenchScreenshot = async(
+  paths: LocalFirstPaths,
+  input: MoveScreenshotInput,
+) => {
+  const db = await getDatabase(paths)
+  return moveScreenshot(db, input)
 }
 
 export const deleteContentBlock = async(paths: LocalFirstPaths, blockId: string) => {
@@ -173,6 +204,14 @@ export const deleteAnnotation = async(paths: LocalFirstPaths, annotationId: stri
 export const restoreAnnotation = async(paths: LocalFirstPaths, annotationId: string) => {
   const db = await getDatabase(paths)
   return setAnnotationDeletedState(db, { annotation_id: annotationId, deleted: false })
+}
+
+export const updateAnnotation = async(
+  paths: LocalFirstPaths,
+  input: Parameters<typeof updateAnnotationMetadata>[1],
+) => {
+  const db = await getDatabase(paths)
+  return updateAnnotationMetadata(db, input)
 }
 
 export const deleteAiRecord = async(paths: LocalFirstPaths, aiRunId: string) => {

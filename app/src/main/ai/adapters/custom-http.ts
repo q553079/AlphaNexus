@@ -1,5 +1,5 @@
 import type { AiAdapter, AiAdapterRunInput, AiAdapterRunResult } from '@main/ai/adapters/base'
-import { AiAnalysisDraftSchema } from '@shared/ai/contracts'
+import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contracts'
 
 const DEFAULT_MODEL = 'openai-compatible-model'
 
@@ -26,6 +26,20 @@ const JSON_CONTRACT = [
   '}',
   'Write all user-facing strings in Simplified Chinese.',
   'If evidence is incomplete, say so explicitly instead of omitting fields.',
+].join('\n')
+
+const TRADE_REVIEW_JSON_CONTRACT = [
+  'Return a JSON object with exactly these keys:',
+  '{',
+  '  "summary_short": string,',
+  '  "what_went_well": string[],',
+  '  "mistakes": string[],',
+  '  "next_improvements": string[],',
+  '  "deep_analysis_md": string',
+  '}',
+  'Write all user-facing strings in Simplified Chinese.',
+  'Do not invent or overwrite trade facts.',
+  'Keep each list short, concrete, and auditable from the provided trade thread context.',
 ].join('\n')
 
 type OpenAiCompatibleResponse = {
@@ -82,11 +96,19 @@ const extractTextContent = (
   return ''
 }
 
-const runCustomHttpAnalysis = async({
-  config,
-  promptPreview,
-  providerSecret,
-}: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
+const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
+  const payload = extractJsonPayload(rawOutput)
+  return input.input.prompt_kind === 'trade-review'
+    ? TradeReviewDraftSchema.parse(payload)
+    : AiAnalysisDraftSchema.parse(payload)
+}
+
+const runCustomHttpAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
+  const {
+    config,
+    promptPreview,
+    providerSecret,
+  } = input
   if (!config.base_url) {
     throw new Error('OpenAI-compatible provider 缺少 base URL，请先在设置页填写。')
   }
@@ -105,7 +127,10 @@ const runCustomHttpAnalysis = async({
       model: config.model || DEFAULT_MODEL,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `${promptPreview}\n\n${JSON_CONTRACT}` },
+        {
+          role: 'user',
+          content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review' ? TRADE_REVIEW_JSON_CONTRACT : JSON_CONTRACT}`,
+        },
       ],
       stream: false,
       temperature: 0.2,
@@ -122,7 +147,7 @@ const runCustomHttpAnalysis = async({
     throw new Error('OpenAI-compatible provider 返回了空的分析结果。')
   }
 
-  const analysis = AiAnalysisDraftSchema.parse(extractJsonPayload(rawOutput))
+  const analysis = parseStructuredOutput(input, rawOutput)
   return {
     analysis,
     model: config.model || DEFAULT_MODEL,

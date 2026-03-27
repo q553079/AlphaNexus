@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { access, readFile } from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
 import { savePendingSnip } from '../../src/main/capture/capture-service.ts'
 import {
@@ -13,6 +15,7 @@ import {
   insertSession,
   insertTrade,
   setRegressionPendingCapture,
+  testCaptureDataUrl,
   withTempDb,
 } from './helpers.mjs'
 
@@ -48,6 +51,13 @@ const overlayAnnotations = [
   },
 ]
 
+const annotationDocumentJson = JSON.stringify({
+  schema_version: 1,
+  source_width: 1600,
+  source_height: 900,
+  annotations: overlayAnnotations,
+}, null, 2)
+
 test('AlphaNexus capture overlay regression guards', async(t) => {
   await t.test('overlay save persists screenshot, annotations, and note, and screenshot delete/restore keeps note block in sync', async() => {
     await withTempDb('capture-overlay-save', async({ paths, db, nextIso }) => {
@@ -78,6 +88,8 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
         },
         annotations: overlayAnnotations,
         note_text: '回踩不破，先按延续处理。',
+        annotated_image_data_url: testCaptureDataUrl,
+        annotation_document_json: annotationDocumentJson,
         run_ai: false,
       }, createCaptureSaveDependencies(paths))
 
@@ -95,6 +107,15 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
       assert.deepEqual(savedEvent.content_block_ids, [result.created_note_block_id])
       assert.equal(savedBlock?.content_md, '回踩不破，先按延续处理。')
       assert.equal(savedBlock?.soft_deleted, false)
+      assert.equal(savedScreenshot?.raw_file_path?.length > 0, true)
+      assert.equal(savedScreenshot?.annotated_file_path?.length > 0, true)
+      assert.equal(savedScreenshot?.annotations_json_path?.length > 0, true)
+      await access(path.join(paths.vaultDir, savedScreenshot.raw_file_path))
+      await access(path.join(paths.vaultDir, savedScreenshot.annotated_file_path))
+      await access(path.join(paths.vaultDir, savedScreenshot.annotations_json_path))
+      const persistedAnnotationDocument = await readFile(path.join(paths.vaultDir, savedScreenshot.annotations_json_path), 'utf8')
+      assert.match(persistedAnnotationDocument, /"schema_version": 1/)
+      assert.match(persistedAnnotationDocument, /"label": "B1"/)
 
       await softDeleteScreenshot(paths, { screenshot_id: result.screenshot.id })
       const afterDelete = await getSessionWorkbench(paths, { session_id: 'session_capture_save' })
@@ -156,6 +177,8 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
           kind: 'chart',
         },
         note_text: '突破后第一次回踩继续观察。',
+        annotated_image_data_url: testCaptureDataUrl,
+        annotation_document_json: annotationDocumentJson,
         run_ai: true,
       }, createCaptureSaveDependencies(paths))
 
@@ -171,6 +194,9 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
       assert.equal(payload.current_context.trade_id, null)
       assert.equal(screenshotEvent?.trade_id, 'trade_capture_ai_open')
       assert.equal(aiRun?.id, result.ai_run_id)
+      assert.equal(aiRun?.prompt_preview, 'capture overlay regression prompt')
+      assert.equal(aiRun?.raw_response_text.length > 0, true)
+      assert.equal(aiRun?.structured_response_json.length > 0, true)
       assert.equal(aiEvent?.trade_id, 'trade_capture_ai_open')
       assert.equal(aiCard?.trade_id, 'trade_capture_ai_open')
     })
@@ -221,6 +247,8 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
           kind: 'chart',
         },
         note_text: '离场截图应该优先挂到 open trade。',
+        annotated_image_data_url: testCaptureDataUrl,
+        annotation_document_json: annotationDocumentJson,
         run_ai: false,
         kind: 'exit',
       }, createCaptureSaveDependencies(paths))
@@ -232,6 +260,54 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
       assert.equal(savedShot?.kind, 'exit')
       assert.equal(savedEvent?.trade_id, 'trade_capture_exit_open')
       assert.equal(savedEvent?.summary, '离场截图应该优先挂到 open trade。')
+      assert.equal(result.resolved_target?.target_kind, 'trade')
+      assert.equal(result.resolved_target?.trade_id, 'trade_capture_exit_open')
+      assert.equal(result.resolved_target?.capture_kind, 'exit')
+      assert.match(result.resolved_target?.resolution_note ?? '', /自动挂到当前 open trade/)
+    })
+  })
+
+  await t.test('overlay save as exit degrades to session target when no open trade exists', async() => {
+    await withTempDb('capture-overlay-exit-fallback', async({ paths, db, nextIso }) => {
+      insertPeriod(db, nextIso, { id: 'period_capture_exit_fallback' })
+      insertContract(db, nextIso, { id: 'contract_capture_exit_fallback', symbol: 'NQ' })
+      insertSession(db, nextIso, {
+        id: 'session_capture_exit_fallback',
+        contract_id: 'contract_capture_exit_fallback',
+        period_id: 'period_capture_exit_fallback',
+        title: 'overlay exit fallback session',
+      })
+
+      setRegressionPendingCapture({
+        session_id: 'session_capture_exit_fallback',
+        contract_id: 'contract_capture_exit_fallback',
+        period_id: 'period_capture_exit_fallback',
+        session_title: 'overlay exit fallback session',
+        contract_symbol: 'NQ',
+      })
+
+      const result = await savePendingSnip(paths, {}, {
+        selection: fullSelection,
+        target_context: {
+          session_id: 'session_capture_exit_fallback',
+          trade_id: null,
+          source_view: 'capture-overlay',
+          kind: 'chart',
+        },
+        note_text: '没有 open trade 时应退回 Session 主线。',
+        run_ai: false,
+        kind: 'exit',
+      }, createCaptureSaveDependencies(paths))
+
+      const payload = await getSessionWorkbench(paths, { session_id: 'session_capture_exit_fallback' })
+      const savedEvent = payload.events.find((event) => event.id === result.created_event_id)
+
+      assert.equal(result.screenshot.kind, 'exit')
+      assert.equal(savedEvent?.trade_id, null)
+      assert.equal(result.resolved_target?.target_kind, 'session')
+      assert.equal(result.resolved_target?.trade_id, null)
+      assert.equal(result.resolved_target?.session_id, 'session_capture_exit_fallback')
+      assert.match(result.resolved_target?.resolution_note ?? '', /降级保存到当前 Session 目标/)
     })
   })
 
@@ -263,6 +339,8 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
           kind: 'chart',
         },
         note_text: '先落本地，再决定是否发 AI。',
+        annotated_image_data_url: testCaptureDataUrl,
+        annotation_document_json: annotationDocumentJson,
         run_ai: true,
       }, createCaptureSaveDependencies(paths, {
         providers: [],

@@ -1,4 +1,4 @@
-import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
+import type { SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
 
 const buildOutputLanguageRules = () => [
   'Output language requirements / 输出语言要求:',
@@ -131,12 +131,53 @@ ${buildOutputLanguageRules()}
 `.trim()
 
 export const buildTradeReviewPrompt = (
-  payload: SessionWorkbenchPayload,
+  detail: TradeDetailPayload,
   context?: PromptContextEnvelope,
 ) => `
-Review active trades for ${payload.session.title}
+Trade review for ${detail.trade.symbol} in ${detail.session.title}
 
-${payload.trades.map((trade) => `- ${trade.side} ${trade.symbol} @ ${trade.entry_price}, stop ${trade.stop_loss}, target ${trade.take_profit}`).join('\n')}
+Trade facts:
+- Side: ${detail.trade.side}
+- Status: ${detail.trade.status}
+- Quantity: ${detail.trade.quantity}
+- Entry: ${detail.trade.entry_price}
+- Stop: ${detail.trade.stop_loss}
+- Target: ${detail.trade.take_profit}
+- Exit: ${detail.trade.exit_price ?? 'pending'}
+- PnL R: ${detail.trade.pnl_r ?? 'pending'}
+
+Setup evidence:
+${detail.setup_screenshots.length > 0
+    ? detail.setup_screenshots.map((shot, index) => `- Setup ${index + 1}: ${truncate(shot.caption ?? shot.id, 72)} | kind=${shot.kind}`).join('\n')
+    : '- No setup screenshot is currently attached.'}
+
+Exit evidence:
+${detail.exit_screenshots.length > 0
+    ? detail.exit_screenshots.map((shot, index) => `- Exit ${index + 1}: ${truncate(shot.caption ?? shot.id, 72)} | kind=${shot.kind}`).join('\n')
+    : '- No exit screenshot is currently attached.'}
+
+Original plan:
+- Trade thesis: ${truncate(detail.trade.thesis || 'pending', 240)}
+- Session trade plan: ${truncate(detail.session.trade_plan_md || 'pending', 240)}
+${detail.original_plan_blocks.slice(0, 3).map((block, index) => `- User block ${index + 1}: ${truncate(block.title, 48)} | ${truncate(block.content_md, 220)}`).join('\n') || '- No extra user plan block.'}
+
+Intraday AI context:
+${detail.ai_groups.market_analysis.length > 0
+    ? detail.ai_groups.market_analysis.slice(-2).map((record, index) =>
+      `- AI ${index + 1}: ${truncate(record.analysis_card?.summary_short ?? record.ai_run.input_summary, 220)}`).join('\n')
+    : '- No intraday AI record was linked to this trade.'}
+
+Execution trail:
+${detail.execution_events.length > 0
+    ? detail.execution_events.map((event) => `- ${event.event_type}: ${truncate(event.summary || event.title, 220)}`).join('\n')
+    : '- No execution event was recorded.'}
+
+Result snapshot:
+${detail.trade.status === 'closed'
+    ? `- Trade is closed with exit ${detail.trade.exit_price ?? 'pending'} and pnl ${detail.trade.pnl_r ?? 'pending'}R.`
+    : detail.trade.status === 'canceled'
+      ? '- Trade was canceled and should be reviewed as an invalidated thread, not a normal exit.'
+      : '- Trade is not closed yet. Focus on execution quality and what must improve before full closure.'}
 
 ${buildKnowledgeAndAnchorContextSection(context)}
 

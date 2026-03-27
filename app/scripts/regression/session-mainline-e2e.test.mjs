@@ -16,6 +16,7 @@ import {
   createCaptureSaveDependencies,
   insertContract,
   setRegressionPendingCapture,
+  testCaptureDataUrl,
   withTempDb,
 } from './helpers.mjs'
 
@@ -25,6 +26,13 @@ const fullSelection = {
   width: 1,
   height: 1,
 }
+
+const annotationDocumentJson = JSON.stringify({
+  schema_version: 1,
+  source_width: 1600,
+  source_height: 900,
+  annotations: [],
+}, null, 2)
 
 const setPendingCaptureForTrade = (session, tradeId, kind = 'chart') => {
   setRegressionPendingCapture({
@@ -90,6 +98,8 @@ test('AlphaNexus session mainline e2e regression', async() => {
         kind: 'chart',
       },
       note_text: 'Setup：reclaim 后第一次回踩不破，允许按计划开仓并看向 108。',
+      annotated_image_data_url: testCaptureDataUrl,
+      annotation_document_json: annotationDocumentJson,
       run_ai: true,
     }, createCaptureSaveDependencies(paths))
 
@@ -103,6 +113,8 @@ test('AlphaNexus session mainline e2e regression', async() => {
         kind: 'execution',
       },
       note_text: 'Manage：加速段不追价，等二次确认继续持有，先不主观提前减仓。',
+      annotated_image_data_url: testCaptureDataUrl,
+      annotation_document_json: annotationDocumentJson,
       run_ai: false,
     }, createCaptureSaveDependencies(paths))
 
@@ -116,6 +128,8 @@ test('AlphaNexus session mainline e2e regression', async() => {
         kind: 'chart',
       },
       note_text: 'Exit：目标位出现衰竭，先保存 exit 图和原始想法，再执行平仓。',
+      annotated_image_data_url: testCaptureDataUrl,
+      annotation_document_json: annotationDocumentJson,
       run_ai: false,
       kind: 'exit',
     }, createCaptureSaveDependencies(paths))
@@ -145,6 +159,12 @@ test('AlphaNexus session mainline e2e regression', async() => {
     assert.equal(tradeEventTypes.at(-1), 'review')
     assert.equal(sessionPayload.ai_runs.some((run) => run.id === setupSave.ai_run_id), true)
     assert.equal(sessionPayload.analysis_cards.some((card) => card.ai_run_id === setupSave.ai_run_id && card.trade_id === opened.trade.id), true)
+    const persistedAiRun = sessionPayload.ai_runs.find((run) => run.id === setupSave.ai_run_id)
+    assert.equal(persistedAiRun?.prompt_preview, 'capture overlay regression prompt')
+    assert.equal(persistedAiRun?.raw_response_text.length > 0, true)
+    assert.equal(persistedAiRun?.structured_response_json.length > 0, true)
+    assert.equal(setupSave.screenshot.annotated_asset_url !== null, true)
+    assert.equal(setupSave.screenshot.annotations_json_path !== null, true)
 
     assert.equal(tradeDetail.trade.id, opened.trade.id)
     assert.equal(tradeDetail.setup_screenshot?.id, setupSave.screenshot.id)
@@ -169,8 +189,8 @@ test('AlphaNexus session mainline e2e regression', async() => {
     assert.match(markdownExport.markdown, /Exit：目标位出现衰竭/)
     assert.match(markdownExport.markdown, /Review Draft \/ Exit Review/)
     assert.match(markdownExport.markdown, /Exit review draft/)
-    assert.match(markdownExport.markdown, new RegExp(setupSave.screenshot.asset_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-    assert.match(markdownExport.markdown, new RegExp(manageSave.screenshot.asset_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-    assert.match(markdownExport.markdown, new RegExp(exitSave.screenshot.asset_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.match(markdownExport.markdown, new RegExp((setupSave.screenshot.annotated_asset_url ?? setupSave.screenshot.asset_url).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.match(markdownExport.markdown, new RegExp((manageSave.screenshot.annotated_asset_url ?? manageSave.screenshot.asset_url).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.match(markdownExport.markdown, new RegExp((exitSave.screenshot.annotated_asset_url ?? exitSave.screenshot.asset_url).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   })
 })

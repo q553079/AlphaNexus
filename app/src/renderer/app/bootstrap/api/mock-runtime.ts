@@ -5,9 +5,11 @@ import {
   type AiRecordChain,
   type ApplySuggestionActionInput,
   type AnnotationMutationResult,
+  type CancelTradeInput,
   type CaptureSessionContextInput,
   type CloseTradeInput,
   type ContentBlockMoveResult,
+  type CreateWorkbenchNoteBlockInput,
   type CurrentContext,
   type CurrentTargetOption,
   type CurrentTargetOptionsPayload,
@@ -37,11 +39,20 @@ import {
   type SetScreenshotDeletedInput,
   type TradeDetailPayload,
   type TradeMutationResult,
+  type UpdateAnnotationInput,
+  type UpdateWorkbenchNoteBlockInput,
 } from '@shared/contracts/workbench'
-import type { AiProviderConfig, AiRunExecutionResult } from '@shared/ai/contracts'
+import type { AiProviderConfig, AiRunExecutionResult, RunMockAiAnalysisInput, TradeReviewDraft } from '@shared/ai/contracts'
 import type { SavePendingSnipResult } from '@shared/capture/contracts'
 import type { ExportSessionMarkdownInput, SessionMarkdownExport } from '@shared/export/contracts'
-import type { CreateSessionInput, CreateSessionResult, LauncherHomePayload, LauncherSessionSummary } from '@shared/contracts/launcher'
+import type {
+  ContinueSessionInput,
+  ContinueSessionResult,
+  CreateSessionInput,
+  CreateSessionResult,
+  LauncherHomePayload,
+  LauncherSessionSummary,
+} from '@shared/contracts/launcher'
 import type {
   DisciplineScore,
   FeedbackItem,
@@ -500,6 +511,15 @@ const resolveMockOutcome = (payload: SessionWorkbenchPayload, tradeId?: string |
       pnl_r: null,
       status: 'insufficient' as const,
       summary: '当前没有足够的 trade outcome。',
+    }
+  }
+  if (trade.status === 'canceled') {
+    return {
+      trade_id: trade.id,
+      outcome_direction: 'unknown' as const,
+      pnl_r: null,
+      status: 'insufficient' as const,
+      summary: '交易已取消，不计入正常结果评估。',
     }
   }
   if (trade.status !== 'closed' || trade.pnl_r === null) {
@@ -1339,6 +1359,53 @@ const mutateMockAnnotationDeleteState = (
   return { annotation: resultAnnotation }
 }
 
+const mutateMockAnnotation = (
+  input: UpdateAnnotationInput,
+): AnnotationMutationResult => {
+  const targetPayload = findMockSessionByAnnotationId(input.annotation_id)
+  if (!targetPayload) {
+    throw new Error(`Missing mock annotation ${input.annotation_id}.`)
+  }
+
+  const timestamp = new Date().toISOString()
+  let resultAnnotation: AnnotationMutationResult['annotation'] | null = null
+
+  updateMockSessionPayload(targetPayload.session.id, (payload) => {
+    const updateScreenshot = (screenshot: SessionWorkbenchPayload['screenshots'][number]) => ({
+      ...screenshot,
+      annotations: screenshot.annotations.map((annotation) => {
+        if (annotation.id !== input.annotation_id) {
+          return annotation
+        }
+
+        resultAnnotation = {
+          ...annotation,
+          label: input.label,
+          title: input.title,
+          semantic_type: input.semantic_type ?? null,
+          text: input.text ?? null,
+          note_md: input.note_md,
+          add_to_memory: input.add_to_memory,
+          updated_at: timestamp,
+        }
+        return resultAnnotation
+      }),
+    })
+
+    return {
+      ...payload,
+      screenshots: payload.screenshots.map(updateScreenshot),
+      deleted_screenshots: payload.deleted_screenshots.map(updateScreenshot),
+    }
+  })
+
+  if (!resultAnnotation) {
+    throw new Error(`Missing mock annotation ${input.annotation_id}.`)
+  }
+
+  return { annotation: resultAnnotation }
+}
+
 const mutateMockAiRecordDeleteState = (
   input: SetAiRecordDeletedInput,
   deleted: boolean,
@@ -1666,16 +1733,37 @@ const buildMockCaptureSaveTarget = (
   const effectiveTradeId = kind === 'exit'
     ? openTrade?.id ?? requestedTradeId
     : requestedTradeId
+  const targetTrade = effectiveTradeId
+    ? payload.trades.find((trade) => trade.id === effectiveTradeId) ?? null
+    : null
 
   if (effectiveTradeId && !payload.trades.some((trade) => trade.id === effectiveTradeId)) {
     throw new Error(`Missing mock trade ${effectiveTradeId}.`)
   }
 
+  const resolutionNote = (() => {
+    if (kind !== 'exit') {
+      return null
+    }
+    if (openTrade?.id && effectiveTradeId === openTrade.id && requestedTradeId !== openTrade.id) {
+      return `Exit 已自动挂到当前 open trade：${openTrade.symbol} ${openTrade.side === 'long' ? '做多' : '做空'}。`
+    }
+    if (!openTrade && effectiveTradeId == null) {
+      return '当前没有 open trade，本次 Exit 已降级保存到当前 Session 目标。'
+    }
+    return null
+  })()
+
   return {
     session_id: requestedSessionId,
     trade_id: effectiveTradeId ?? null,
+    target_kind: targetTrade ? 'trade' as const : 'session' as const,
+    target_label: targetTrade
+      ? `${targetTrade.symbol} ${targetTrade.side === 'long' ? '做多' : '做空'}`
+      : payload.session.title,
     kind,
     source_view: input.target_context?.source_view ?? pending.source_view ?? 'capture-overlay',
+    resolution_note: resolutionNote,
   }
 }
 
@@ -1729,6 +1817,82 @@ const ensureMockCurrentContext = (input?: GetCurrentContextInput): CurrentContex
 
 const resolveMockTrade = (payload: SessionWorkbenchPayload, tradeId?: string | null) =>
   resolveTradeForCurrentContext(payload.trades, tradeId)
+
+type MockTradeAiRecord = TradeDetailPayload['ai_groups']['market_analysis'][number]
+
+const parseMockTradeReviewStructured = (
+  value: string,
+): MockTradeAiRecord['trade_review_structured'] => {
+  try {
+    const parsed = JSON.parse(value) as Partial<TradeReviewDraft>
+    if (
+      typeof parsed.summary_short !== 'string'
+      || !Array.isArray(parsed.what_went_well)
+      || !Array.isArray(parsed.mistakes)
+      || !Array.isArray(parsed.next_improvements)
+      || typeof parsed.deep_analysis_md !== 'string'
+    ) {
+      return null
+    }
+
+    return {
+      summary_short: parsed.summary_short,
+      what_went_well: parsed.what_went_well.filter((item): item is string => typeof item === 'string'),
+      mistakes: parsed.mistakes.filter((item): item is string => typeof item === 'string'),
+      next_improvements: parsed.next_improvements.filter((item): item is string => typeof item === 'string'),
+      deep_analysis_md: parsed.deep_analysis_md,
+    }
+  } catch {
+    return null
+  }
+}
+
+const buildMockTradeAiGroups = (payload: SessionWorkbenchPayload, tradeId: string): TradeDetailPayload['ai_groups'] => {
+  const analysisCardByAiRunId = new Map(
+    payload.analysis_cards
+      .filter((card) => card.trade_id === tradeId && !card.deleted_at)
+      .map((card) => [card.ai_run_id, card]),
+  )
+  const eventByAiRunId = new Map(
+    payload.events
+      .filter((event) => event.trade_id === tradeId && !event.deleted_at && event.ai_run_id)
+      .map((event) => [event.ai_run_id as string, event]),
+  )
+  const contentBlockByEventId = new Map(
+    payload.content_blocks
+      .filter((block) => !block.soft_deleted && !block.deleted_at && block.event_id)
+      .map((block) => [block.event_id as string, block]),
+  )
+  const records: MockTradeAiRecord[] = payload.ai_runs
+    .filter((aiRun) => !aiRun.deleted_at)
+    .flatMap((aiRun) => {
+      const analysisCard = analysisCardByAiRunId.get(aiRun.id) ?? null
+      const event = eventByAiRunId.get(aiRun.id) ?? null
+      if (!analysisCard && !event) {
+        return []
+      }
+
+      return [{
+        ai_run: aiRun,
+        analysis_card: analysisCard,
+        event,
+        content_block: event?.id ? contentBlockByEventId.get(event.id) ?? null : null,
+        trade_review_structured: aiRun.prompt_kind === 'trade-review'
+          ? parseMockTradeReviewStructured(aiRun.structured_response_json)
+          : null,
+      }]
+    })
+    .sort((left, right) => left.ai_run.created_at.localeCompare(right.ai_run.created_at))
+  const marketAnalysis = records.filter((record) => record.ai_run.prompt_kind === 'market-analysis')
+  const tradeReview = records.filter((record) => record.ai_run.prompt_kind === 'trade-review')
+
+  return {
+    market_analysis: marketAnalysis,
+    trade_review: tradeReview,
+    latest_market_analysis: marketAnalysis[marketAnalysis.length - 1] ?? null,
+    latest_trade_review: tradeReview[tradeReview.length - 1] ?? null,
+  }
+}
 
 const getTradeScopedAnalysisCards = (payload: SessionWorkbenchPayload, tradeId: string | null | undefined) =>
   tradeId
@@ -1869,6 +2033,25 @@ const createMockSessionPayload = (input: CreateSessionInput): CreateSessionResul
   return { session }
 }
 
+const continueMockSessionPayload = (input: ContinueSessionInput): ContinueSessionResult => {
+  mockSessionPayloads = mockSessionPayloads.map((payload) => ({
+    ...payload,
+    session: {
+      ...payload.session,
+      status: payload.session.id === input.session_id
+        ? 'active'
+        : payload.session.status === 'active'
+          ? 'planned'
+          : payload.session.status,
+    },
+  }))
+  const nextPayload = getRawMockPayload(input.session_id)
+  setActiveMockPayload(nextPayload)
+  return {
+    session: nextPayload.session,
+  }
+}
+
 const buildTradeDetail = (tradeId?: string): TradeDetailPayload => {
   const targetPayload = tradeId
     ? mockSessionPayloads.find((payload) => payload.trades.some((trade) => trade.id === tradeId)) ?? getMockPayload()
@@ -1879,6 +2062,7 @@ const buildTradeDetail = (tradeId?: string): TradeDetailPayload => {
   }
   const feedbackBundle = buildMockTradeFeedbackBundle(targetPayload, trade.id)
   const thread = buildMockTradeThread(targetPayload, trade.id)
+  const aiGroups = buildMockTradeAiGroups(targetPayload, trade.id)
   const evaluation = getTradeScopedEvaluation(targetPayload, trade.id)
   const evaluationSummary = buildMockTradeEvaluationSummary(targetPayload, trade.id)
   const reviewSections = buildMockTradeReviewSections({
@@ -1894,7 +2078,8 @@ const buildTradeDetail = (tradeId?: string): TradeDetailPayload => {
     trade,
     related_events: thread.related_events,
     analysis_cards: thread.analysis_cards,
-    latest_analysis_card: thread.latest_analysis_card,
+    latest_analysis_card: aiGroups.latest_market_analysis?.analysis_card ?? thread.latest_analysis_card,
+    ai_groups: aiGroups,
     screenshots: thread.screenshots,
     setup_screenshot: thread.setup_screenshot,
     setup_screenshots: thread.setup_screenshots,
@@ -1903,7 +2088,7 @@ const buildTradeDetail = (tradeId?: string): TradeDetailPayload => {
     exit_screenshots: thread.exit_screenshots,
     content_blocks: thread.content_blocks,
     original_plan_blocks: thread.original_plan_blocks,
-    linked_ai_cards: thread.linked_ai_cards,
+    linked_ai_cards: aiGroups.market_analysis.flatMap((record) => record.analysis_card ? [record.analysis_card] : []),
     execution_events: thread.execution_events,
     review_blocks: thread.review_blocks,
     review_draft_block: thread.review_draft_block,
@@ -2137,6 +2322,101 @@ const mutateMockRealtimeView = (input: SaveSessionRealtimeViewInput): ContentBlo
   return { block: newBlock }
 }
 
+const mutateMockCreateNoteBlock = (input: CreateWorkbenchNoteBlockInput): ContentBlockMutationResult => {
+  const currentContext = updateMockCurrentContext({
+    session_id: input.session_id,
+    trade_id: input.trade_id ?? null,
+    source_view: 'session-workbench',
+    capture_kind: mockCurrentContext.capture_kind,
+  })
+  const contextType = currentContext.trade_id ? 'trade' as const : 'session' as const
+  const contextId = currentContext.trade_id ?? input.session_id
+  const targetPayload = getRawMockPayload(input.session_id)
+  const timestamp = new Date().toISOString()
+  const eventId = createMockEntityId('event')
+  const block = {
+    id: createMockEntityId('block'),
+    schema_version: 1 as const,
+    created_at: timestamp,
+    updated_at: timestamp,
+    deleted_at: null,
+    session_id: input.session_id,
+    event_id: eventId,
+    block_type: 'markdown' as const,
+    title: input.title,
+    content_md: input.content_md,
+    sort_order: targetPayload.content_blocks.length + 1,
+    context_type: contextType,
+    context_id: contextId,
+    soft_deleted: false,
+    move_history: [],
+  }
+  const event = {
+    id: eventId,
+    schema_version: 1 as const,
+    created_at: timestamp,
+    deleted_at: null,
+    session_id: input.session_id,
+    trade_id: currentContext.trade_id,
+    event_type: 'observation' as const,
+    title: input.title,
+    summary: input.content_md.slice(0, 120),
+    author_kind: 'user' as const,
+    occurred_at: timestamp,
+    content_block_ids: [block.id],
+    screenshot_id: null,
+    ai_run_id: null,
+  }
+
+  updateMockSessionPayload(input.session_id, (payload) => ({
+    ...payload,
+    content_blocks: [...payload.content_blocks, block],
+    events: [...payload.events, event],
+  }))
+  refreshPanels()
+  return { block }
+}
+
+const mutateMockUpdateNoteBlock = (input: UpdateWorkbenchNoteBlockInput): ContentBlockMutationResult => {
+  const targetPayload = mockSessionPayloads.find((payload) =>
+    payload.content_blocks.some((block) => block.id === input.block_id))
+  if (!targetPayload) {
+    throw new Error(`Missing mock content block ${input.block_id}.`)
+  }
+
+  const existingBlock = targetPayload.content_blocks.find((block) => block.id === input.block_id)
+  if (!existingBlock) {
+    throw new Error(`Missing mock content block ${input.block_id}.`)
+  }
+
+  const timestamp = new Date().toISOString()
+  const nextBlock = {
+    ...existingBlock,
+    title: input.title,
+    content_md: input.content_md,
+    soft_deleted: false,
+    deleted_at: null,
+    updated_at: timestamp,
+  }
+
+  updateMockSessionPayload(targetPayload.session.id, (payload) => ({
+    ...payload,
+    content_blocks: payload.content_blocks.map((block) => block.id === nextBlock.id ? nextBlock : block),
+    events: payload.events.map((event) => event.id === nextBlock.event_id
+      ? {
+        ...event,
+        title: input.title,
+        summary: input.content_md.slice(0, 120),
+        occurred_at: timestamp,
+        deleted_at: null,
+        content_block_ids: [nextBlock.id],
+      }
+      : event),
+  }))
+  refreshPanels()
+  return { block: nextBlock }
+}
+
 const mutateMockOpenTrade = (input: OpenTradeInput): TradeMutationResult => {
   const sessionPayload = getMockPayload(input.session_id)
   if (sessionPayload.trades.some((trade) => trade.status === 'open')) {
@@ -2319,9 +2599,67 @@ const mutateMockCloseTrade = (input: CloseTradeInput): TradeMutationResult => {
   }
 
   updateMockSessionPayload(trade.session_id, (payload) => ({
-    ...payload,
-    trades: payload.trades.map((item) => item.id === trade.id ? nextTrade : item),
-    events: [...payload.events, event],
+    ...upsertMockTradeReviewDraft({
+      ...payload,
+      trades: payload.trades.map((item) => item.id === trade.id ? nextTrade : item),
+      events: [...payload.events, event],
+    }, trade.id),
+  }))
+
+  return { trade: nextTrade, event }
+}
+
+const mutateMockCancelTrade = (input: CancelTradeInput): TradeMutationResult => {
+  const sessionPayload = findMockSessionByTradeId(input.trade_id)
+  if (!sessionPayload) {
+    throw new Error(`Missing mock trade ${input.trade_id}.`)
+  }
+
+  const trade = sessionPayload.trades.find((item) => item.id === input.trade_id)
+  if (!trade) {
+    throw new Error(`Missing mock trade ${input.trade_id}.`)
+  }
+  if (trade.status === 'closed') {
+    throw new Error(`交易 ${input.trade_id} 已经 closed，不能再取消。`)
+  }
+  if (trade.status === 'canceled') {
+    throw new Error(`交易 ${input.trade_id} 已经 canceled。`)
+  }
+
+  const timestamp = input.canceled_at ?? new Date().toISOString()
+  const reason = input.reason_md?.trim()
+  const nextTrade = {
+    ...trade,
+    status: 'canceled' as const,
+    exit_price: null,
+    closed_at: timestamp,
+    pnl_r: null,
+  }
+  const event = {
+    id: createMockEntityId('event'),
+    schema_version: 1 as const,
+    created_at: timestamp,
+    deleted_at: null,
+    session_id: trade.session_id,
+    trade_id: trade.id,
+    event_type: 'trade_cancel' as const,
+    title: `${trade.symbol} ${trade.side === 'long' ? '做多' : '做空'} 取消`,
+    summary: reason
+      ? `交易已取消，不计入正常离场结果。原因：${reason}`
+      : '交易已取消，不计入正常离场结果。',
+    author_kind: 'user' as const,
+    occurred_at: timestamp,
+    content_block_ids: [],
+    screenshot_id: null,
+    ai_run_id: null,
+  }
+
+  updateMockSessionPayload(trade.session_id, (payload) => ({
+    ...upsertMockTradeReviewDraft({
+      ...payload,
+      trades: payload.trades.map((item) => item.id === trade.id ? nextTrade : item),
+      events: [...payload.events, event],
+    }, trade.id),
   }))
 
   return { trade: nextTrade, event }
@@ -2406,27 +2744,74 @@ const mutateMockAiAnalysis = (input: RunAiAnalysisInput): AiRunExecutionResult =
   const aiRunId = `airun_mock_${nextIndex}`
   const eventId = `event_mock_ai_${nextIndex}`
   const blockId = `block_mock_ai_${nextIndex}`
+  const groundedKnowledgeCardIds = getMockApprovedRuntime({
+    contract_scope: sessionPayload.contract.symbol,
+    limit: 3,
+  }).hits.map((hit) => hit.card_id)
+  const activeAnchorIds = sessionPayload.context_memory.active_anchors
+    .filter((anchor) => anchor.status === 'active')
+    .map((anchor) => anchor.id)
+  const tradeReviewStructured = input.prompt_kind === 'trade-review'
+    ? ({
+      summary_short: currentTrade
+        ? `${providerLabel} 模拟复盘：${currentTrade.symbol} ${currentTrade.side === 'long' ? '做多' : '做空'} ${currentTrade.status === 'canceled' ? '已取消' : currentTrade.status === 'closed' ? '已闭环' : '待闭环'}。`
+        : `${providerLabel} 模拟复盘：当前没有绑定可复盘的 trade。`,
+      what_went_well: [
+        '保留了 setup 与 exit 的图像证据。',
+        '把人工计划与 AI 输出分层保存。',
+      ],
+      mistakes: [
+        currentTrade?.status === 'canceled'
+          ? '取消前的失效原因还可以写得更具体。'
+          : '执行节点的因果说明还不够及时。',
+      ],
+      next_improvements: [
+        '继续把 exit 图与执行说明绑定到同一笔 trade。',
+        '在离场前补一句结果判断，减少事后追记。',
+      ],
+      deep_analysis_md: [
+        `# ${providerLabel} 模拟交易复盘`,
+        '',
+        currentTrade
+          ? `Trade：${currentTrade.symbol} ${currentTrade.side === 'long' ? '做多' : '做空'}`
+          : 'Trade：当前没有显式 trade 上下文',
+        '',
+        '- 做得好的地方：保留了关键图像与计划证据。',
+        '- 出错点：执行与结果之间的说明仍可更结构化。',
+        '- 下次改进：把离场理由和执行偏差更早写入事件流。',
+      ].join('\n'),
+    } satisfies TradeReviewDraft)
+    : null
   const analysisCard = {
     ...latestCard,
     id: `analysis_mock_${nextIndex}`,
     created_at: timestamp,
     ai_run_id: aiRunId,
-    trade_id: currentTrade?.id ?? null,
-    summary_short: `${providerLabel} 模拟分析：${latestCard.summary_short}`,
-    deep_analysis_md: [
-      latestCard.deep_analysis_md,
-      '',
-      `模拟 Prompt 类型：${input.prompt_kind}`,
-      `模拟截图上下文：${input.screenshot_id ?? '无'}`,
-    ].join('\n'),
+    trade_id: input.trade_id ?? currentTrade?.id ?? null,
+    bias: input.prompt_kind === 'trade-review' ? 'neutral' as const : latestCard.bias,
+    confidence_pct: input.prompt_kind === 'trade-review' ? 66 : latestCard.confidence_pct,
+    reversal_probability_pct: input.prompt_kind === 'trade-review' ? 0 : latestCard.reversal_probability_pct,
+    entry_zone: input.prompt_kind === 'trade-review' ? 'trade-review' : latestCard.entry_zone,
+    stop_loss: input.prompt_kind === 'trade-review' ? 'n/a' : latestCard.stop_loss,
+    take_profit: input.prompt_kind === 'trade-review' ? 'n/a' : latestCard.take_profit,
+    invalidation: input.prompt_kind === 'trade-review' ? 'trade-review only' : latestCard.invalidation,
+    summary_short: input.prompt_kind === 'trade-review'
+      ? tradeReviewStructured?.summary_short ?? `${providerLabel} 模拟复盘`
+      : `${providerLabel} 模拟分析：${latestCard.summary_short}`,
+    deep_analysis_md: input.prompt_kind === 'trade-review'
+      ? tradeReviewStructured?.deep_analysis_md ?? latestCard.deep_analysis_md
+      : [
+        latestCard.deep_analysis_md,
+        '',
+        `模拟 Prompt 类型：${input.prompt_kind}`,
+        `模拟截图上下文：${input.screenshot_id ?? '无'}`,
+      ].join('\n'),
+    supporting_factors: input.prompt_kind === 'trade-review'
+      ? ['setup screenshot', 'exit screenshot', 'trade review context']
+      : latestCard.supporting_factors,
     context_layer: {
-      active_anchor_ids: sessionPayload.context_memory.active_anchors
-        .filter((anchor) => anchor.status === 'active')
-        .map((anchor) => anchor.id),
-      grounded_knowledge_card_ids: getMockApprovedRuntime({
-        contract_scope: sessionPayload.contract.symbol,
-        limit: 3,
-      }).hits.map((hit) => hit.card_id),
+      active_anchor_ids: activeAnchorIds,
+      grounded_knowledge_card_ids: groundedKnowledgeCardIds,
     },
   }
   const contentBlock = {
@@ -2437,14 +2822,27 @@ const mutateMockAiAnalysis = (input: RunAiAnalysisInput): AiRunExecutionResult =
     session_id: sessionPayload.session.id,
     event_id: eventId,
     block_type: 'ai-summary' as const,
-    title: `${providerLabel} 摘要`,
-    content_md: [
-      `# ${providerLabel} 模拟分析`,
-      '',
-      analysisCard.summary_short,
-      '',
-      analysisCard.deep_analysis_md,
-    ].join('\n'),
+    title: input.prompt_kind === 'trade-review' ? `${providerLabel} 交易复盘` : `${providerLabel} 摘要`,
+    content_md: input.prompt_kind === 'trade-review'
+      ? [
+        tradeReviewStructured?.deep_analysis_md ?? '',
+        '',
+        '## 做得好的地方',
+        ...(tradeReviewStructured?.what_went_well.map((item) => `- ${item}`) ?? []),
+        '',
+        '## 出错点',
+        ...(tradeReviewStructured?.mistakes.map((item) => `- ${item}`) ?? []),
+        '',
+        '## 下次改进',
+        ...(tradeReviewStructured?.next_improvements.map((item) => `- ${item}`) ?? []),
+      ].join('\n')
+      : [
+        `# ${providerLabel} 模拟分析`,
+        '',
+        analysisCard.summary_short,
+        '',
+        analysisCard.deep_analysis_md,
+      ].join('\n'),
     sort_order: sessionPayload.content_blocks.length + 1,
     context_type: 'event' as const,
     context_id: eventId,
@@ -2457,9 +2855,9 @@ const mutateMockAiAnalysis = (input: RunAiAnalysisInput): AiRunExecutionResult =
     created_at: timestamp,
     deleted_at: null,
     session_id: sessionPayload.session.id,
-    trade_id: currentTrade?.id ?? null,
+    trade_id: input.trade_id ?? currentTrade?.id ?? null,
     event_type: 'ai_summary' as const,
-    title: `${providerLabel} 模拟市场分析`,
+    title: input.prompt_kind === 'trade-review' ? `${providerLabel} 模拟交易复盘` : `${providerLabel} 模拟市场分析`,
     summary: analysisCard.summary_short,
     author_kind: 'ai' as const,
     occurred_at: timestamp,
@@ -2479,6 +2877,19 @@ const mutateMockAiAnalysis = (input: RunAiAnalysisInput): AiRunExecutionResult =
     status: 'completed' as const,
     prompt_kind: input.prompt_kind,
     input_summary: `模拟 ${input.prompt_kind} 输入`,
+    prompt_preview: `模拟 ${input.prompt_kind} 提示词预览。`,
+    raw_response_text: JSON.stringify(input.prompt_kind === 'trade-review'
+      ? tradeReviewStructured
+      : {
+        summary_short: analysisCard.summary_short,
+        bias: analysisCard.bias,
+      }),
+    structured_response_json: JSON.stringify(input.prompt_kind === 'trade-review'
+      ? tradeReviewStructured
+      : {
+        bias: analysisCard.bias,
+        confidence_pct: analysisCard.confidence_pct,
+      }),
     finished_at: timestamp,
   }
   const groundingHits = getMockApprovedRuntime({
@@ -2515,7 +2926,7 @@ const mutateMockAiAnalysis = (input: RunAiAnalysisInput): AiRunExecutionResult =
     analysis_card: analysisCard,
     event,
     content_block: contentBlock,
-    prompt_preview: `模拟 ${input.prompt_kind} 提示词预览。`,
+    prompt_preview: aiRun.prompt_preview,
   }
 }
 
@@ -2616,6 +3027,14 @@ const createMockSnipCapture = (
     created_note_block_id: noteBlockId,
     ai_run_id: null,
     ai_error: null,
+    resolved_target: {
+      target_kind: saveTarget.target_kind,
+      session_id: saveTarget.session_id,
+      trade_id: saveTarget.trade_id ?? null,
+      target_label: saveTarget.target_label,
+      capture_kind: saveTarget.kind,
+      resolution_note: saveTarget.resolution_note,
+    },
   }
 
   if (input.run_ai) {
@@ -2692,6 +3111,7 @@ export const mockApi: AlphaNexusApi = {
   launcher: {
     getHome: async() => buildLauncherHome(),
     createSession: async(input) => createMockSessionPayload(input),
+    continueSession: async(input) => continueMockSessionPayload(input),
   },
   workbench: {
     getSession: async(input) => {
@@ -2741,12 +3161,19 @@ export const mockApi: AlphaNexusApi = {
     addToTrade: async(input) => mutateMockAddToTrade(input),
     reduceTrade: async(input) => mutateMockReduceTrade(input),
     closeTrade: async(input) => mutateMockCloseTrade(input),
+    cancelTrade: async(input) => mutateMockCancelTrade(input),
     saveRealtimeView: async(input) => mutateMockRealtimeView(input),
+    createNoteBlock: async(input) => mutateMockCreateNoteBlock(input),
+    updateNoteBlock: async(input) => mutateMockUpdateNoteBlock(input),
     moveContentBlock: async(input) => mutateMockMoveContentBlock(input),
+    moveScreenshot: async() => {
+      throw new Error('mock runtime 不再默认支持 screenshot 改挂载，请在 Electron 主进程真实链路中验证该能力。')
+    },
     deleteContentBlock: async(input) => mutateMockDeleteState(input, true),
     restoreContentBlock: async(input) => mutateMockDeleteState(input, false),
     deleteScreenshot: async(input) => mutateMockScreenshotDeleteState(input, true),
     restoreScreenshot: async(input) => mutateMockScreenshotDeleteState(input, false),
+    updateAnnotation: async(input) => mutateMockAnnotation(input),
     deleteAnnotation: async(input) => mutateMockAnnotationDeleteState(input, true),
     restoreAnnotation: async(input) => mutateMockAnnotationDeleteState(input, false),
     deleteAiRecord: async(input) => mutateMockAiRecordDeleteState(input, true),
@@ -2810,6 +3237,7 @@ export const mockApi: AlphaNexusApi = {
         ...screenshot,
         annotations: input.annotations.map((annotation, index) => ({
           ...annotation,
+          screenshot_id: input.screenshot_id,
           id: `annotation_mock_${index + 1}`,
           schema_version: 1 as const,
           created_at: new Date().toISOString(),
@@ -2853,10 +3281,13 @@ export const mockApi: AlphaNexusApi = {
       return mockProviders
     },
     runAnalysis: async(input) => mutateMockAiAnalysis(input),
-    runMockAnalysis: async() => ({
-      analysis_card: mockPayload.analysis_cards[mockPayload.analysis_cards.length - 1],
-      prompt_preview: '模拟分析提示词预览。',
-    }),
+    runMockAnalysis: async(input: RunMockAiAnalysisInput) => {
+      const result = mutateMockAiAnalysis(input)
+      return {
+        analysis_card: result.analysis_card,
+        prompt_preview: result.prompt_preview,
+      }
+    },
   },
   knowledge: {
     getReviewDashboard: async(input) => buildMockKnowledgeDashboard(input),

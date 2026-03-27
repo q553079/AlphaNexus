@@ -425,6 +425,56 @@ const migrations: Migration[] = [
       ON content_block_move_audit(block_id, moved_at DESC);
     `,
   },
+  {
+    id: 7,
+    name: 'add-screenshot-derived-asset-columns',
+    sql: `
+      ALTER TABLE screenshots ADD COLUMN raw_file_path TEXT;
+      ALTER TABLE screenshots ADD COLUMN raw_asset_url TEXT;
+      ALTER TABLE screenshots ADD COLUMN annotated_file_path TEXT;
+      ALTER TABLE screenshots ADD COLUMN annotated_asset_url TEXT;
+      ALTER TABLE screenshots ADD COLUMN annotations_json_path TEXT;
+
+      UPDATE screenshots
+      SET
+        raw_file_path = COALESCE(raw_file_path, file_path),
+        raw_asset_url = COALESCE(raw_asset_url, asset_url)
+      WHERE raw_file_path IS NULL OR raw_asset_url IS NULL;
+    `,
+  },
+  {
+    id: 8,
+    name: 'add-ai-run-audit-columns',
+    sql: `
+      ALTER TABLE ai_runs ADD COLUMN prompt_preview TEXT DEFAULT '';
+      ALTER TABLE ai_runs ADD COLUMN raw_response_text TEXT DEFAULT '';
+      ALTER TABLE ai_runs ADD COLUMN structured_response_json TEXT DEFAULT '{}';
+
+      UPDATE ai_runs
+      SET
+        prompt_preview = COALESCE(prompt_preview, ''),
+        raw_response_text = COALESCE(raw_response_text, ''),
+        structured_response_json = COALESCE(structured_response_json, '{}')
+      WHERE prompt_preview IS NULL OR raw_response_text IS NULL OR structured_response_json IS NULL;
+    `,
+  },
+  {
+    id: 9,
+    name: 'add-annotation-semantic-columns',
+    sql: `
+      ALTER TABLE annotations ADD COLUMN title TEXT DEFAULT '';
+      ALTER TABLE annotations ADD COLUMN semantic_type TEXT;
+      ALTER TABLE annotations ADD COLUMN note_md TEXT DEFAULT '';
+      ALTER TABLE annotations ADD COLUMN add_to_memory INTEGER NOT NULL DEFAULT 0;
+
+      UPDATE annotations
+      SET
+        title = COALESCE(NULLIF(title, ''), label),
+        note_md = COALESCE(note_md, COALESCE(text, '')),
+        add_to_memory = COALESCE(add_to_memory, 0)
+      WHERE title IS NULL OR title = '' OR note_md IS NULL OR add_to_memory IS NULL;
+    `,
+  },
 ]
 
 export const applyMigrations = (db: Database.Database) => {

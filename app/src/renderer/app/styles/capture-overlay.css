@@ -188,6 +188,16 @@
   opacity: 0.7;
 }
 
+.capture-editor__shape.is-candidate {
+  opacity: 0.74;
+}
+
+.capture-editor__shape.is-candidate rect,
+.capture-editor__shape.is-candidate ellipse,
+.capture-editor__shape.is-candidate line {
+  stroke-dasharray: 10 8;
+}
+
 .capture-editor__shape.is-active rect,
 .capture-editor__shape.is-active ellipse,
 .capture-editor__shape.is-active line {

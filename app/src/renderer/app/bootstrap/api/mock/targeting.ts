@@ -17,6 +17,7 @@ const statusLabels = {
   planned: '计划中',
   open: '持仓中',
   closed: '已关闭',
+  canceled: '已取消',
 } as const
 
 const buildSessionOption = (

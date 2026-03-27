@@ -67,6 +67,20 @@ const loadContract = (db: Database.Database, contractId: string) => {
   return ContractSchema.parse(row)
 }
 
+const markOnlySessionAsActive = (db: Database.Database, sessionId: string) => {
+  db.prepare(`
+    UPDATE sessions
+    SET status = 'planned'
+    WHERE id <> ? AND status = 'active' AND deleted_at IS NULL
+  `).run(sessionId)
+
+  db.prepare(`
+    UPDATE sessions
+    SET status = 'active', ended_at = NULL
+    WHERE id = ? AND deleted_at IS NULL
+  `).run(sessionId)
+}
+
 const getOrCreateCurrentWeekPeriod = (db: Database.Database, referenceDate = new Date()) => {
   const { start, end, weekYear, week } = getCurrentWeekRange(referenceDate)
   const startAt = toLocalIso(start)
@@ -125,27 +139,47 @@ export const createSessionRecord = (db: Database.Database, input: CreateSessionI
     deleted_at: null,
   })
 
-  db.prepare(`
-    INSERT INTO sessions (
-      id, schema_version, created_at, contract_id, period_id, title, status, started_at, ended_at,
-      market_bias, tags_json, my_realtime_view, trade_plan_md, context_focus, deleted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-  `).run(
-    session.id,
-    session.schema_version,
-    session.created_at,
-    session.contract_id,
-    session.period_id,
-    session.title,
-    session.status,
-    session.started_at,
-    session.ended_at,
-    session.market_bias,
-    JSON.stringify(session.tags),
-    session.my_realtime_view,
-    session.trade_plan_md,
-    session.context_focus,
-  )
+  db.transaction(() => {
+    markOnlySessionAsActive(db, session.id)
+    db.prepare(`
+      INSERT INTO sessions (
+        id, schema_version, created_at, contract_id, period_id, title, status, started_at, ended_at,
+        market_bias, tags_json, my_realtime_view, trade_plan_md, context_focus, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `).run(
+      session.id,
+      session.schema_version,
+      session.created_at,
+      session.contract_id,
+      session.period_id,
+      session.title,
+      session.status,
+      session.started_at,
+      session.ended_at,
+      session.market_bias,
+      JSON.stringify(session.tags),
+      session.my_realtime_view,
+      session.trade_plan_md,
+      session.context_focus,
+    )
+  })()
 
   return session
+}
+
+export const activateSessionRecord = (db: Database.Database, sessionId: string) => {
+  const row = db.prepare('SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL LIMIT 1').get(sessionId) as Record<string, unknown> | undefined
+  if (!row) {
+    throw new Error(`未找到 Session ${sessionId}。`)
+  }
+
+  db.transaction(() => {
+    markOnlySessionAsActive(db, sessionId)
+  })()
+
+  const updated = db.prepare('SELECT * FROM sessions WHERE id = ? LIMIT 1').get(sessionId) as Record<string, unknown>
+  return SessionSchema.parse({
+    ...updated,
+    tags: JSON.parse(String(updated.tags_json ?? '[]')) as string[],
+  })
 }

@@ -22,6 +22,7 @@ import {
   buildCaptureAssetPath,
   buildPendingTargetMetadata,
   defaultCaptureSaveDependencies as defaultCaptureSaveFlowDependencies,
+  persistCaptureDerivedAssets,
   persistSnipSelection,
   pickPreferredCaptureAnalysisProvider,
   resolvePendingSaveTarget,
@@ -307,6 +308,10 @@ export const savePendingSnip = async(
     image,
     input.note_text,
     input.annotations,
+    {
+      annotated_image_data_url: input.annotated_image_data_url,
+      annotation_document_json: input.annotation_document_json,
+    },
   )
 
   clearPendingSnipCapture()
@@ -408,11 +413,20 @@ export const importScreenshotIntoSession = async(paths: LocalFirstPaths, rawInpu
 export const saveScreenshotAnnotations = async(paths: LocalFirstPaths, rawInput: unknown): Promise<CaptureResult> => {
   const input = SaveScreenshotAnnotationsInputSchema.parse(rawInput)
   const db = await getDatabase(paths)
+  const existingScreenshot = loadScreenshotById(db, input.screenshot_id)
+  const derived = await persistCaptureDerivedAssets(paths, existingScreenshot.session_id, {
+    annotated_image_data_url: input.annotated_image_data_url,
+    annotation_document_json: input.annotation_document_json,
+  })
 
   replaceScreenshotAnnotations(db, input.screenshot_id, input.annotations.map((annotation) => ({
     ...annotation,
     deleted_at: undefined,
-  })))
+  })), {
+    annotated_file_path: derived.annotated_file_path,
+    annotated_asset_url: derived.annotated_asset_url,
+    annotations_json_path: derived.annotations_json_path,
+  })
 
   const screenshot = loadScreenshotById(db, input.screenshot_id)
   return CaptureResultSchema.parse({

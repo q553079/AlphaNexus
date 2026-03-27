@@ -5,13 +5,17 @@ import {
   getSessionWorkbench,
   getTradeDetail,
   listWorkbenchTargetOptions,
+  moveScreenshotToTarget,
   retargetContentBlock,
 } from '../../src/main/domain/workbench-service.ts'
 import {
+  insertAiRun,
+  insertAnalysisCard,
   insertContentBlock,
   insertContract,
   insertEvent,
   insertPeriod,
+  insertScreenshot,
   insertSession,
   insertTrade,
   withTempDb,
@@ -191,7 +195,7 @@ test('AlphaNexus target selector regression guards', async(t) => {
 
       assert.equal(movedToTrade.block.context_type, 'trade')
       assert.equal(movedToTrade.block.context_id, 'trade_move_current')
-      assert.equal(movedToTrade.block.event_id, null)
+      assert.equal(movedToTrade.block.event_id !== null, true)
       assert.equal(movedToTrade.move_audit.from_context_type, 'event')
       assert.equal(movedToTrade.move_audit.to_context_type, 'trade')
 
@@ -201,6 +205,10 @@ test('AlphaNexus target selector regression guards', async(t) => {
       const sourceEventAfterMove = (await getSessionWorkbench(paths, { session_id: 'session_move_current' }))
         .events.find((event) => event.id === 'event_move_source')
       assert.deepEqual(sourceEventAfterMove?.content_block_ids ?? [], [])
+      const tradeMountedEvent = (await getSessionWorkbench(paths, { session_id: 'session_move_current' }))
+        .events.find((event) => event.id === movedToTrade.block.event_id)
+      assert.equal(tradeMountedEvent?.trade_id, 'trade_move_current')
+      assert.deepEqual(tradeMountedEvent?.content_block_ids ?? [], ['block_move_target'])
 
       const movedToPeriod = await retargetContentBlock(paths, {
         block_id: 'block_move_target',
@@ -231,6 +239,146 @@ test('AlphaNexus target selector regression guards', async(t) => {
         moveAuditRows.map((row) => [row.from_context_type, row.to_context_type]),
         [['event', 'trade'], ['trade', 'period']],
       )
+    })
+  })
+
+  await t.test('screenshot move retargets screenshot, linked event chain, and historical trade visibility together', async() => {
+    await withTempDb('target-selector-screenshot-move', async({ paths, db, nextIso }) => {
+      insertContract(db, nextIso, { id: 'contract_shot_move', symbol: 'NQ' })
+      insertPeriod(db, nextIso, {
+        id: 'period_shot_move_previous',
+        label: '2026-W12',
+        start_at: '2026-03-16T00:00:00.000Z',
+        end_at: '2026-03-22T23:59:59.000Z',
+      })
+      insertPeriod(db, nextIso, {
+        id: 'period_shot_move_current',
+        label: '2026-W13',
+        start_at: '2026-03-23T00:00:00.000Z',
+        end_at: '2026-03-29T23:59:59.000Z',
+      })
+
+      insertSession(db, nextIso, {
+        id: 'session_shot_move_previous',
+        contract_id: 'contract_shot_move',
+        period_id: 'period_shot_move_previous',
+        title: 'Previous shot session',
+      })
+      insertSession(db, nextIso, {
+        id: 'session_shot_move_current',
+        contract_id: 'contract_shot_move',
+        period_id: 'period_shot_move_current',
+        title: 'Current shot session',
+      })
+      insertTrade(db, nextIso, {
+        id: 'trade_shot_move_previous',
+        session_id: 'session_shot_move_previous',
+        symbol: 'NQ',
+        side: 'short',
+        status: 'closed',
+        opened_at: '2026-03-20T01:05:00.000Z',
+        closed_at: '2026-03-20T01:16:00.000Z',
+        exit_price: 98,
+        pnl_r: 1.2,
+        thesis: 'historical target trade',
+      })
+
+      insertScreenshot(db, nextIso, {
+        id: 'shot_move_target',
+        session_id: 'session_shot_move_current',
+        event_id: 'event_shot_move_source',
+        kind: 'chart',
+        caption: 'Move this screenshot',
+        file_path: 'shots/current/move-me.png',
+        asset_url: 'file:///shots/current/move-me.png',
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_shot_move_source',
+        session_id: 'session_shot_move_current',
+        trade_id: null,
+        event_type: 'screenshot',
+        title: '截图',
+        summary: 'session-scoped screenshot',
+        screenshot_id: 'shot_move_target',
+        content_block_ids: ['block_shot_move_note'],
+        occurred_at: '2026-03-26T01:10:00.000Z',
+      })
+      insertContentBlock(db, nextIso, {
+        id: 'block_shot_move_note',
+        session_id: 'session_shot_move_current',
+        event_id: 'event_shot_move_source',
+        title: '截图备注',
+        content_md: 'session scoped screenshot note',
+        context_type: 'event',
+        context_id: 'event_shot_move_source',
+        sort_order: 1,
+      })
+      insertAiRun(db, nextIso, {
+        id: 'airun_shot_move',
+        session_id: 'session_shot_move_current',
+        event_id: 'event_ai_shot_move',
+      })
+      insertAnalysisCard(db, nextIso, {
+        id: 'analysis_shot_move',
+        ai_run_id: 'airun_shot_move',
+        session_id: 'session_shot_move_current',
+        trade_id: null,
+        bias: 'bearish',
+        confidence_pct: 66,
+        summary_short: 'move linked ai',
+      })
+      insertContentBlock(db, nextIso, {
+        id: 'block_ai_shot_move',
+        session_id: 'session_shot_move_current',
+        event_id: 'event_ai_shot_move',
+        block_type: 'ai-summary',
+        title: 'Linked AI block',
+        content_md: 'linked ai content',
+        context_type: 'event',
+        context_id: 'event_ai_shot_move',
+        sort_order: 2,
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_ai_shot_move',
+        session_id: 'session_shot_move_current',
+        trade_id: null,
+        event_type: 'ai_summary',
+        title: 'Linked AI',
+        summary: 'ai linked to screenshot',
+        author_kind: 'ai',
+        screenshot_id: 'shot_move_target',
+        ai_run_id: 'airun_shot_move',
+        content_block_ids: ['block_ai_shot_move'],
+        occurred_at: '2026-03-26T01:11:00.000Z',
+      })
+
+      const moved = await moveScreenshotToTarget(paths, {
+        screenshot_id: 'shot_move_target',
+        target_kind: 'trade',
+        session_id: 'session_shot_move_previous',
+        trade_id: 'trade_shot_move_previous',
+      })
+
+      assert.equal(moved.session_id, 'session_shot_move_previous')
+
+      const currentPayload = await getSessionWorkbench(paths, { session_id: 'session_shot_move_current' })
+      assert.equal(currentPayload.screenshots.some((screenshot) => screenshot.id === 'shot_move_target'), false)
+      assert.equal(currentPayload.events.some((event) => event.id === 'event_shot_move_source'), false)
+      assert.equal(currentPayload.events.some((event) => event.id === 'event_ai_shot_move'), false)
+      assert.equal(currentPayload.content_blocks.some((block) => block.id === 'block_shot_move_note'), false)
+      assert.equal(currentPayload.ai_runs.some((run) => run.id === 'airun_shot_move'), false)
+
+      const previousPayload = await getSessionWorkbench(paths, { session_id: 'session_shot_move_previous' })
+      assert.equal(previousPayload.screenshots.some((screenshot) => screenshot.id === 'shot_move_target'), true)
+      assert.equal(previousPayload.events.find((event) => event.id === 'event_shot_move_source')?.trade_id, 'trade_shot_move_previous')
+      assert.equal(previousPayload.events.find((event) => event.id === 'event_ai_shot_move')?.trade_id, 'trade_shot_move_previous')
+      assert.equal(previousPayload.ai_runs.find((run) => run.id === 'airun_shot_move')?.session_id, 'session_shot_move_previous')
+      assert.equal(previousPayload.analysis_cards.find((card) => card.id === 'analysis_shot_move')?.trade_id, 'trade_shot_move_previous')
+      assert.equal(previousPayload.content_blocks.find((block) => block.id === 'block_shot_move_note')?.session_id, 'session_shot_move_previous')
+
+      const previousTradeDetail = await getTradeDetail(paths, { trade_id: 'trade_shot_move_previous' })
+      assert.equal(previousTradeDetail.screenshots.some((screenshot) => screenshot.id === 'shot_move_target'), true)
+      assert.equal(previousTradeDetail.linked_ai_cards.some((card) => card.id === 'analysis_shot_move'), true)
     })
   })
 })

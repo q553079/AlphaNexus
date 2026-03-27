@@ -1,61 +1,24 @@
-export type KnowledgeSourceType = 'book' | 'article' | 'course-note' | 'user-note' | 'review-derived'
+import type {
+  IngestKnowledgeSourceInput as SharedIngestKnowledgeSourceInput,
+  KnowledgeCardPatch,
+  KnowledgeCardRecord,
+  KnowledgeFragmentRecord,
+  KnowledgeReviewDashboardPayload,
+  KnowledgeSourceRecord,
+  ReviewKnowledgeCardInput as SharedReviewKnowledgeCardInput,
+} from '@shared/contracts/knowledge'
 
-export type KnowledgeCardStatus = 'draft' | 'approved' | 'archived'
-
-export type KnowledgeReviewAction = 'approve' | 'edit-approve' | 'archive'
-
-export type KnowledgeSourceView = {
-  id: string
-  source_type: KnowledgeSourceType
-  title: string
-  author: string | null
-  created_at: string
+export type KnowledgeCardView = KnowledgeCardRecord
+export type KnowledgeCardStatus = KnowledgeCardView['status']
+export type KnowledgeReviewDashboard = KnowledgeReviewDashboardPayload
+export type KnowledgeSourceView = KnowledgeSourceRecord
+export type KnowledgeSourceType = SharedIngestKnowledgeSourceInput['source_type']
+export type KnowledgeFragmentView = KnowledgeFragmentRecord
+export type IngestKnowledgeSourceInput = SharedIngestKnowledgeSourceInput
+export type ReviewKnowledgeCardInput = Omit<SharedReviewKnowledgeCardInput, 'reviewed_by'> & {
+  reviewed_by?: string
 }
-
-export type KnowledgeFragmentView = {
-  id: string
-  source_id: string
-  sequence_no: number
-  chapter_label: string | null
-  page_from: number | null
-  page_to: number | null
-  content_md: string
-}
-
-export type KnowledgeCardView = {
-  id: string
-  source_id: string
-  fragment_id: string
-  card_type: string
-  title: string
-  summary: string
-  content_md: string
-  tags: string[]
-  status: KnowledgeCardStatus
-  updated_at: string
-}
-
-export type KnowledgeReviewDashboard = {
-  sources: KnowledgeSourceView[]
-  fragments: KnowledgeFragmentView[]
-  draft_cards: KnowledgeCardView[]
-  approved_cards: KnowledgeCardView[]
-}
-
-export type IngestKnowledgeSourceInput = {
-  source_type: KnowledgeSourceType
-  title: string
-  author?: string
-  content: string
-}
-
-export type ReviewKnowledgeCardInput = {
-  card_id: string
-  action: KnowledgeReviewAction
-  edit_payload?: {
-    title?: string
-    summary?: string
-    content_md?: string
-    tags?: string[]
-  }
+export type KnowledgeReviewAction = ReviewKnowledgeCardInput['action']
+export type {
+  KnowledgeCardPatch,
 }

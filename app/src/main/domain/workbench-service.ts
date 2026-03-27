@@ -1,7 +1,9 @@
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import {
   addTradePosition,
+  cancelTradePosition,
   closeTradePosition,
+  createWorkbenchNote,
   createTrade,
   deleteAiRecord,
   deleteAnnotation,
@@ -13,6 +15,7 @@ import {
   fetchTargetOptions,
   fetchTradeDetail,
   moveWorkbenchContentBlock,
+  moveWorkbenchScreenshot,
   reduceTradePosition,
   restoreAiRecord,
   restoreAnnotation,
@@ -21,11 +24,15 @@ import {
   saveCurrentContext,
   saveAiAnalysisArtifacts,
   saveSessionRealtimeView,
+  updateAnnotation,
+  updateWorkbenchNote,
 } from '@main/storage/workbench'
 import type {
+  CreateWorkbenchNoteBlockInput,
   CurrentContext,
   CurrentTargetOptionsPayload,
   GetCurrentContextInput,
+  MoveScreenshotInput,
   GetPeriodReviewInput,
   GetSessionWorkbenchInput,
   GetTradeDetailInput,
@@ -33,6 +40,7 @@ import type {
   MoveContentBlockInput,
   OpenTradeInput,
   AddToTradeInput,
+  CancelTradeInput,
   CloseTradeInput,
   ReduceTradeInput,
   SaveSessionRealtimeViewInput,
@@ -41,6 +49,8 @@ import type {
   SetAnnotationDeletedInput,
   SetContentBlockDeletedInput,
   SetScreenshotDeletedInput,
+  UpdateAnnotationInput,
+  UpdateWorkbenchNoteBlockInput,
 } from '@shared/contracts/workbench'
 
 export const getSessionWorkbench = async(paths: LocalFirstPaths, input?: GetSessionWorkbenchInput) =>
@@ -73,11 +83,28 @@ export const reduceExistingTrade = async(paths: LocalFirstPaths, input: ReduceTr
 export const closeExistingTrade = async(paths: LocalFirstPaths, input: CloseTradeInput) =>
   closeTradePosition(paths, input)
 
+export const cancelExistingTrade = async(paths: LocalFirstPaths, input: CancelTradeInput) =>
+  cancelTradePosition(paths, input)
+
 export const updateSessionRealtimeView = async(paths: LocalFirstPaths, input: SaveSessionRealtimeViewInput) =>
   saveSessionRealtimeView(paths, input)
 
+export const createWorkbenchNoteBlockForContext = async(paths: LocalFirstPaths, input: CreateWorkbenchNoteBlockInput) =>
+  createWorkbenchNote(paths, {
+    session_id: input.session_id,
+    trade_id: input.trade_id ?? null,
+    title: input.title,
+    content_md: input.content_md,
+  })
+
+export const updateWorkbenchNoteBlockContent = async(paths: LocalFirstPaths, input: UpdateWorkbenchNoteBlockInput) =>
+  updateWorkbenchNote(paths, input)
+
 export const retargetContentBlock = async(paths: LocalFirstPaths, input: MoveContentBlockInput) =>
   moveWorkbenchContentBlock(paths, input)
+
+export const moveScreenshotToTarget = async(paths: LocalFirstPaths, input: MoveScreenshotInput) =>
+  moveWorkbenchScreenshot(paths, input)
 
 export const softDeleteContentBlock = async(paths: LocalFirstPaths, input: SetContentBlockDeletedInput) =>
   deleteContentBlock(paths, input.block_id)
@@ -96,6 +123,17 @@ export const softDeleteAnnotation = async(paths: LocalFirstPaths, input: SetAnno
 
 export const undeleteAnnotation = async(paths: LocalFirstPaths, input: SetAnnotationDeletedInput) =>
   restoreAnnotation(paths, input.annotation_id)
+
+export const updateWorkbenchAnnotation = async(paths: LocalFirstPaths, input: UpdateAnnotationInput) =>
+  updateAnnotation(paths, {
+    annotation_id: input.annotation_id,
+    label: input.label,
+    title: input.title,
+    semantic_type: input.semantic_type ?? null,
+    text: input.text ?? null,
+    note_md: input.note_md,
+    add_to_memory: input.add_to_memory,
+  })
 
 export const softDeleteAiRecord = async(paths: LocalFirstPaths, input: SetAiRecordDeletedInput) =>
   deleteAiRecord(paths, input.ai_run_id)

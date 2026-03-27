@@ -49,9 +49,21 @@ export type KnowledgeReviewDashboardPayload = {
 
 export type ReviewKnowledgeCardInput = {
   knowledge_card_id: string
-  action: 'approve' | 'archive'
+  action: 'approve' | 'edit-approve' | 'archive'
   reviewed_by?: string | null
   review_note_md?: string | null
+  edit_payload?: {
+    card_type?: KnowledgeCardRecord['card_type']
+    title?: string
+    summary?: string
+    content_md?: string
+    trigger_conditions_md?: string
+    invalidation_md?: string
+    risk_rule_md?: string
+    contract_scope?: string[]
+    timeframe_scope?: string[]
+    tags?: string[]
+  }
 }
 
 export type ApprovedKnowledgeRuntimeInput = {
@@ -72,6 +84,9 @@ export type KnowledgeRuntimeHit = {
   contract_scope: string
   timeframe_scope: string
   tags: string[]
+  relevance_score: number
+  fragment_excerpt: string
+  match_reasons: string[]
 }
 
 export type ApprovedKnowledgeRuntimePayload = {
@@ -79,9 +94,14 @@ export type ApprovedKnowledgeRuntimePayload = {
 }
 
 export type ComposerSuggestion = {
-  kind: 'phrase' | 'template'
+  id: string
+  kind: 'phrase' | 'template' | 'completion'
+  label: string
   text: string
+  source_kind: 'system-template' | 'rule' | 'knowledge' | 'ai' | 'history'
   source_card_id: string | null
+  reason_summary: string
+  rank_score: number
 }
 
 export type ActiveAnchorSummary = {
@@ -117,6 +137,7 @@ export type ComposerShellPayload = {
   approved_knowledge_hits: KnowledgeRuntimeHit[]
   suggestions: ComposerSuggestion[]
   active_anchor_labels: string[]
+  context_summary?: string
 }
 
 export type ListMarketAnchorFilters = {
@@ -190,41 +211,113 @@ const parseTags = (tagsJson: string) => {
 const normalizeTags = (tags: string[] | undefined) =>
   (tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean)
 
-const toRuntimeHit = (card: KnowledgeCardRecord): KnowledgeRuntimeHit => ({
-  knowledge_card_id: card.id,
-  title: card.title,
-  summary: card.summary,
-  card_type: card.card_type,
-  contract_scope: card.contract_scope,
-  timeframe_scope: card.timeframe_scope,
-  tags: parseTags(card.tags_json),
-})
+const truncate = (value: string, maxLength: number) => {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLength) {
+    return compact
+  }
+  return `${compact.slice(0, maxLength - 3)}...`
+}
+
+const toRuntimeHit = (
+  card: KnowledgeCardRecord,
+  input: ApprovedKnowledgeRuntimeInput,
+): KnowledgeRuntimeHit => {
+  const tags = parseTags(card.tags_json)
+  const matchReasons: string[] = []
+
+  if (input.contract_scope?.trim()) {
+    matchReasons.push(`contract=${input.contract_scope.trim()}`)
+  }
+  if (input.timeframe_scope?.trim()) {
+    matchReasons.push(`timeframe=${input.timeframe_scope.trim()}`)
+  }
+  if (input.trade_state?.trim()) {
+    matchReasons.push(`trade_state=${input.trade_state.trim()}`)
+  }
+  if (input.annotation_semantic?.trim()) {
+    matchReasons.push(`annotation_semantic=${input.annotation_semantic.trim()}`)
+  }
+  if ((input.tags ?? []).length > 0) {
+    matchReasons.push(`tags=${normalizeTags(input.tags).join(', ')}`)
+  }
+  if ((input.context_tags ?? []).length > 0) {
+    matchReasons.push(`context_tags=${normalizeTags(input.context_tags).join(', ')}`)
+  }
+  if (matchReasons.length === 0) {
+    matchReasons.push('approved knowledge runtime fallback')
+  }
+
+  const relevanceScore = Math.max(0.3, Math.min(0.95, Number((0.55 + (matchReasons.length * 0.08)).toFixed(2))))
+  return {
+    knowledge_card_id: card.id,
+    title: card.title,
+    summary: card.summary,
+    card_type: card.card_type,
+    contract_scope: card.contract_scope,
+    timeframe_scope: card.timeframe_scope,
+    tags,
+    relevance_score: relevanceScore,
+    fragment_excerpt: truncate(card.content_md, 180),
+    match_reasons: matchReasons,
+  }
+}
 
 const toComposerSuggestions = (hits: KnowledgeRuntimeHit[]): ComposerSuggestion[] => {
   const suggestions: ComposerSuggestion[] = []
 
   for (const hit of hits.slice(0, 4)) {
     suggestions.push({
+      id: `composer_phrase_${hit.knowledge_card_id}`,
       kind: 'phrase',
+      label: hit.title,
       text: `${hit.title}: ${hit.summary}`,
+      source_kind: 'knowledge',
       source_card_id: hit.knowledge_card_id,
+      reason_summary: hit.match_reasons[0] ?? '命中 approved knowledge。',
+      rank_score: hit.relevance_score,
     })
     suggestions.push({
+      id: `composer_template_${hit.knowledge_card_id}`,
       kind: 'template',
+      label: `结构化模板 · ${hit.title}`,
       text: `观点：\n依据：${hit.title}\n触发条件：\n失效条件：`,
+      source_kind: 'knowledge',
       source_card_id: hit.knowledge_card_id,
+      reason_summary: `基于 approved knowledge "${hit.title}" 生成结构化模板。`,
+      rank_score: Math.max(0.45, hit.relevance_score - 0.05),
     })
   }
 
   if (suggestions.length === 0) {
     suggestions.push({
+      id: 'composer_template_system_default',
       kind: 'template',
+      label: '系统模板',
       text: '观点：\n关键区域：\n触发条件：\n失效条件：\n执行计划：',
+      source_kind: 'system-template',
       source_card_id: null,
+      reason_summary: '当前没有命中的 approved knowledge，回退到本地结构化模板。',
+      rank_score: 0.42,
     })
   }
 
   return suggestions.slice(0, 8)
+}
+
+const buildComposerContextSummary = (
+  hits: KnowledgeRuntimeHit[],
+  activeAnchorCount: number,
+) => {
+  if (hits.length === 0) {
+    return activeAnchorCount > 0
+      ? `当前没有命中的 approved knowledge，保留 ${activeAnchorCount} 个 active anchor 供手动参考。`
+      : '当前没有命中的 approved knowledge，Composer 仅提供本地结构化模板。'
+  }
+
+  return activeAnchorCount > 0
+    ? `当前命中 ${hits.length} 条 approved knowledge，并携带 ${activeAnchorCount} 个 active anchor 上下文。`
+    : `当前命中 ${hits.length} 条 approved knowledge。`
 }
 
 const normalizeAnchorFilters = (input: ListMarketAnchorFilters = {}): ListMarketAnchorFilters => ({
@@ -421,6 +514,7 @@ export const reviewKnowledgeDraftCard = async(paths: LocalFirstPaths, input: Rev
     action: input.action,
     reviewed_by: input.reviewed_by ?? 'local-user',
     review_note_md: input.review_note_md ?? '',
+    edit_payload: input.edit_payload,
   }))()
 }
 
@@ -446,7 +540,7 @@ export const getApprovedKnowledgeRuntime = async(
   const db = await getDatabase(paths)
   const cards = listApprovedKnowledgeCards(db, input)
   return {
-    hits: cards.map(toRuntimeHit),
+    hits: cards.map((card) => toRuntimeHit(card, input)),
   }
 }
 
@@ -634,5 +728,6 @@ export const getComposerShellData = async(
     approved_knowledge_hits: runtime.hits,
     suggestions: toComposerSuggestions(runtime.hits),
     active_anchor_labels: anchorSummary.anchors.map((anchor) => anchor.title),
+    context_summary: buildComposerContextSummary(runtime.hits, anchorSummary.anchors.length),
   }
 }

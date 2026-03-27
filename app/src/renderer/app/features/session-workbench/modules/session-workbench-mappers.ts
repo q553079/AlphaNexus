@@ -20,7 +20,7 @@ import type {
 } from '@shared/contracts/knowledge'
 import type { ScreenshotRecord } from '@shared/contracts/content'
 
-const analysisProviderPriority: AiProviderConfig['provider'][] = ['custom-http', 'deepseek', 'openai', 'anthropic']
+const analysisProviderPriority: AiProviderConfig['provider'][] = ['openai', 'deepseek', 'anthropic', 'custom-http']
 
 export const pickPreferredAnalysisProvider = (providers: AiProviderConfig[]) => {
   const available = providers.filter((provider) => provider.enabled && provider.configured)
@@ -32,12 +32,16 @@ export const toDraftAnnotation = (annotation: ScreenshotRecord['annotations'][nu
   screenshot_id: annotation.screenshot_id,
   shape: annotation.shape,
   label: annotation.label,
+  title: annotation.title,
+  semantic_type: annotation.semantic_type,
   color: annotation.color,
   x1: annotation.x1,
   y1: annotation.y1,
   x2: annotation.x2,
   y2: annotation.y2,
   text: annotation.text,
+  note_md: annotation.note_md,
+  add_to_memory: annotation.add_to_memory,
   stroke_width: annotation.stroke_width,
 })
 
@@ -106,7 +110,15 @@ export const toAnnotationSuggestionView = (suggestion: AnnotationSuggestion): An
   id: suggestion.id,
   source_annotation_key: suggestion.source_annotation_id ?? undefined,
   label: suggestion.label,
+  title: suggestion.title,
   semantic_type: suggestion.semantic_type ?? 'context',
+  shape: suggestion.shape,
+  color: suggestion.color,
+  x1: suggestion.x1,
+  y1: suggestion.y1,
+  x2: suggestion.x2,
+  y2: suggestion.y2,
+  text: suggestion.text,
   reason_summary: suggestion.rationale,
   confidence_pct: suggestion.confidence_pct ?? 0,
   state: toSuggestionState(suggestion.status),
@@ -143,6 +155,8 @@ export const toComposerSuggestionView = (
     source?: ComposerSuggestion['source']
     rationale?: string
     ranking_reason?: string
+    confidence_pct?: number
+    knowledge_card_id?: string | null
   },
 ): ComposerSuggestion => ({
   id: suggestion.id,
@@ -151,7 +165,9 @@ export const toComposerSuggestionView = (
   text: suggestion.text,
   source: suggestion.source,
   rationale: suggestion.rationale,
-  ranking_reasons: suggestion.ranking_reason ? [suggestion.ranking_reason] : [],
+  ranking_reason: suggestion.ranking_reason,
+  confidence_pct: suggestion.confidence_pct,
+  knowledge_card_id: suggestion.knowledge_card_id,
 })
 
 export type AdoptAnchorCandidate = {

@@ -6,6 +6,7 @@ type ComposerSuggestionShellProps = {
   suggestions: ComposerSuggestion[]
   textareaValue: string
   contextSummary?: string
+  onSuggestionAccept: (suggestion: ComposerSuggestion) => void
   onTextareaChange: (value: string) => void
 }
 
@@ -18,6 +19,9 @@ const appendSuggestion = (existing: string, next: string) => {
 }
 
 const sourceLabel = (source: ComposerSuggestion['source']) => {
+  if (source === 'system-template') {
+    return 'system-template'
+  }
   if (source === 'knowledge') {
     return 'knowledge'
   }
@@ -31,36 +35,6 @@ const sourceLabel = (source: ComposerSuggestion['source']) => {
     return 'ai'
   }
   return 'local'
-}
-
-const normalizeCompletion = (value: string) => value.replace(/\s+/g, ' ').trim()
-
-const deriveCompletionSuggestions = (textareaValue: string): ComposerSuggestion[] => {
-  const seed = normalizeCompletion(textareaValue)
-  if (!seed) {
-    return []
-  }
-  const prefix = seed.length > 72 ? `${seed.slice(0, 72)}...` : seed
-  return [
-    {
-      id: `completion_local_1_${prefix.length}`,
-      type: 'completion',
-      label: '补全：触发确认',
-      text: `${prefix}\n触发确认：等待回踩后买盘重新吸收。`,
-      source: 'rule',
-      rationale: '保持记录结构化，补全触发确认句。',
-      ranking_reasons: ['与当前句子前缀最匹配', '历史执行类模板优先'],
-    },
-    {
-      id: `completion_local_2_${prefix.length}`,
-      type: 'completion',
-      label: '补全：失效条件',
-      text: `${prefix}\n失效条件：跌回关键区域下方并反抽失败。`,
-      source: 'knowledge',
-      rationale: '强调失效条件，避免只写方向不写边界。',
-      ranking_reasons: ['风险控制优先', '与 active anchor 语义对齐'],
-    },
-  ]
 }
 
 const suggestionLabel = (suggestion: ComposerSuggestion) => {
@@ -79,14 +53,12 @@ export const ComposerSuggestionShell = ({
   suggestions,
   textareaValue,
   contextSummary,
+  onSuggestionAccept,
   onTextareaChange,
 }: ComposerSuggestionShellProps) => {
   const phraseSuggestions = suggestions.filter((item) => item.type === 'phrase')
   const templateSuggestions = suggestions.filter((item) => item.type === 'template')
-  const completionSuggestions = [
-    ...suggestions.filter((item) => item.type === 'completion'),
-    ...deriveCompletionSuggestions(textareaValue),
-  ].slice(0, 6)
+  const completionSuggestions = suggestions.filter((item) => item.type === 'completion').slice(0, 6)
 
   return (
     <section className="composer-shell">
@@ -109,7 +81,10 @@ export const ComposerSuggestionShell = ({
             <button
               className={`composer-shell__chip source-${sourceLabel(suggestion.source)}`.trim()}
               key={suggestion.id}
-              onClick={() => onTextareaChange(appendSuggestion(textareaValue, suggestion.text))}
+              onClick={() => {
+                onSuggestionAccept(suggestion)
+                onTextareaChange(appendSuggestion(textareaValue, suggestion.text))
+              }}
               type="button"
             >
               {suggestionLabel(suggestion)}
@@ -125,7 +100,10 @@ export const ComposerSuggestionShell = ({
             <button
               className={`composer-shell__chip is-template source-${sourceLabel(suggestion.source)}`.trim()}
               key={suggestion.id}
-              onClick={() => onTextareaChange(appendSuggestion(textareaValue, suggestion.text))}
+              onClick={() => {
+                onSuggestionAccept(suggestion)
+                onTextareaChange(appendSuggestion(textareaValue, suggestion.text))
+              }}
               type="button"
             >
               {suggestionLabel(suggestion)}
@@ -141,7 +119,10 @@ export const ComposerSuggestionShell = ({
             <button
               className={`composer-shell__chip is-completion source-${sourceLabel(suggestion.source)}`.trim()}
               key={suggestion.id}
-              onClick={() => onTextareaChange(appendSuggestion(textareaValue, suggestion.text))}
+              onClick={() => {
+                onSuggestionAccept(suggestion)
+                onTextareaChange(appendSuggestion(textareaValue, suggestion.text))
+              }}
               type="button"
             >
               {suggestionLabel(suggestion)}
@@ -164,10 +145,10 @@ export const ComposerSuggestionShell = ({
       <div className="composer-shell__group">
         <p className="composer-shell__group-title">Ranking Reasons</p>
         <div className="composer-shell__reasons">
-          {suggestions.flatMap((item) => item.ranking_reasons ?? []).slice(0, 4).map((reason) => (
+          {suggestions.map((item) => item.ranking_reason).filter((reason): reason is string => Boolean(reason)).slice(0, 4).map((reason) => (
             <span className="status-pill" key={reason}>{reason}</span>
           ))}
-          {suggestions.every((item) => !item.ranking_reasons || item.ranking_reasons.length === 0) ? (
+          {suggestions.every((item) => !item.ranking_reason) ? (
             <span className="composer-shell__empty">当前使用默认排序：相关度 {'>'} 采纳率 {'>'} 最近命中。</span>
           ) : null}
         </div>
@@ -186,7 +167,11 @@ export const ComposerSuggestionShell = ({
                   {typeof hit.relevance_score === 'number' ? (
                     <span className="status-pill">score {hit.relevance_score.toFixed(2)}</span>
                   ) : null}
+                  {hit.match_reasons?.[0] ? (
+                    <span className="status-pill">{hit.match_reasons[0]}</span>
+                  ) : null}
                 </div>
+                {hit.fragment_excerpt ? <p>{hit.fragment_excerpt}</p> : null}
               </article>
             ))}
           </div>

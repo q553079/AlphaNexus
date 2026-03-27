@@ -1,6 +1,19 @@
 import type Database from 'better-sqlite3'
-import type { AiRecordChain, PeriodReviewPayload, SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
-import { AiRecordChainSchema, PeriodReviewPayloadSchema, SessionWorkbenchPayloadSchema, TradeDetailPayloadSchema } from '@shared/contracts/workbench'
+import { TradeReviewDraftSchema } from '@shared/ai/contracts'
+import type {
+  AiRecordChain,
+  PeriodReviewPayload,
+  SessionWorkbenchPayload,
+  TradeDetailAiRecord,
+  TradeDetailPayload,
+} from '@shared/contracts/workbench'
+import {
+  AiRecordChainSchema,
+  PeriodReviewPayloadSchema,
+  SessionWorkbenchPayloadSchema,
+  TradeDetailAiRecordSchema,
+  TradeDetailPayloadSchema,
+} from '@shared/contracts/workbench'
 import { resolveTradeForCurrentContext, type CurrentContext, type CurrentTargetOption, type TargetOptionGroups } from '@shared/contracts/current-context'
 import { REALTIME_VIEW_TITLE, getFirstId, groupAnnotations, resolveDefaultSessionId, selectRows } from '@main/db/repositories/workbench-utils'
 import {
@@ -65,13 +78,13 @@ export const loadAiRecordChainByAiRunId = (db: Database.Database, aiRunId: strin
   const analysisCardRow = db.prepare(`
     SELECT * FROM analysis_cards
     WHERE ai_run_id = ?
-    ORDER BY created_at DESC
+    ORDER BY created_at DESC, rowid DESC
     LIMIT 1
   `).get(aiRunId) as Record<string, unknown> | undefined
   const eventRow = db.prepare(`
     SELECT * FROM events
     WHERE ai_run_id = ?
-    ORDER BY occurred_at DESC
+    ORDER BY occurred_at DESC, created_at DESC, rowid DESC
     LIMIT 1
   `).get(aiRunId) as Record<string, unknown> | undefined
   const contentBlockRow = eventRow
@@ -91,6 +104,51 @@ export const loadAiRecordChainByAiRunId = (db: Database.Database, aiRunId: strin
   })
 }
 
+const parseTradeReviewStructured = (value: string): TradeDetailAiRecord['trade_review_structured'] => {
+  try {
+    return TradeReviewDraftSchema.parse(JSON.parse(value))
+  } catch {
+    return null
+  }
+}
+
+const loadTradeAiRecordChains = (db: Database.Database, tradeId: string): TradeDetailAiRecord[] => {
+  const rows = selectRows(db, `
+    SELECT DISTINCT ar.id
+    FROM ai_runs ar
+    LEFT JOIN analysis_cards ac ON ac.ai_run_id = ar.id AND ac.deleted_at IS NULL
+    LEFT JOIN events ev ON ev.ai_run_id = ar.id AND ev.deleted_at IS NULL
+    WHERE ar.deleted_at IS NULL
+      AND (
+        ac.trade_id = ?
+        OR ev.trade_id = ?
+      )
+    ORDER BY ar.created_at ASC, ar.rowid ASC
+  `, [tradeId, tradeId])
+
+  return rows.map((row) => {
+    const record = loadAiRecordChainByAiRunId(db, String(row.id))
+    return TradeDetailAiRecordSchema.parse({
+      ...record,
+      trade_review_structured: record.ai_run.prompt_kind === 'trade-review'
+        ? parseTradeReviewStructured(record.ai_run.structured_response_json)
+        : null,
+    })
+  })
+}
+
+const groupTradeAiRecordChains = (records: TradeDetailAiRecord[]) => {
+  const marketAnalysis = records.filter((record) => record.ai_run.prompt_kind === 'market-analysis')
+  const tradeReview = records.filter((record) => record.ai_run.prompt_kind === 'trade-review')
+
+  return {
+    market_analysis: marketAnalysis,
+    trade_review: tradeReview,
+    latest_market_analysis: marketAnalysis[marketAnalysis.length - 1] ?? null,
+    latest_trade_review: tradeReview[tradeReview.length - 1] ?? null,
+  }
+}
+
 export const loadTradeById = (db: Database.Database, tradeId: string) => {
   const row = db.prepare('SELECT * FROM trades WHERE id = ? LIMIT 1').get(tradeId) as Record<string, unknown> | undefined
   if (!row) {
@@ -106,7 +164,7 @@ const loadTradeScreenshots = (db: Database.Database, tradeId: string) => {
     FROM screenshots
     INNER JOIN events ON events.id = screenshots.event_id
     WHERE events.trade_id = ? AND events.deleted_at IS NULL AND screenshots.deleted_at IS NULL
-    ORDER BY events.occurred_at ASC, screenshots.created_at ASC
+    ORDER BY events.occurred_at ASC, events.rowid ASC, screenshots.created_at ASC, screenshots.rowid ASC
   `, [tradeId])
   const screenshotIds = screenshotRows.map((row) => String(row.id))
   const annotationsByShot = loadAnnotationsForScreenshots(db, screenshotIds)
@@ -296,18 +354,23 @@ export const loadSessionWorkbench = (
   const session = mapSession(db.prepare('SELECT * FROM sessions WHERE id = ? LIMIT 1').get(resolvedSessionId) as Record<string, unknown>)
   const contract = mapContract(db.prepare('SELECT * FROM contracts WHERE id = ? LIMIT 1').get(session.contract_id) as Record<string, unknown>)
   const period = mapPeriod(db.prepare('SELECT * FROM periods WHERE id = ? LIMIT 1').get(session.period_id) as Record<string, unknown>)
-  const trades = selectRows(db, 'SELECT * FROM trades WHERE session_id = ? AND deleted_at IS NULL ORDER BY opened_at ASC', [session.id]).map(mapTrade)
-  const events = selectRows(db, 'SELECT * FROM events WHERE session_id = ? AND deleted_at IS NULL ORDER BY occurred_at ASC', [session.id]).map(mapEvent)
+  const trades = selectRows(db, 'SELECT * FROM trades WHERE session_id = ? AND deleted_at IS NULL ORDER BY opened_at ASC, rowid ASC', [session.id]).map(mapTrade)
+  const events = selectRows(db, 'SELECT * FROM events WHERE session_id = ? AND deleted_at IS NULL ORDER BY occurred_at ASC, rowid ASC', [session.id]).map(mapEvent)
   const contentBlocks = attachMoveHistory(
     db,
     selectRows(db, 'SELECT * FROM content_blocks WHERE session_id = ? ORDER BY sort_order ASC, created_at ASC', [session.id]).map(mapContentBlock),
   )
-  const aiRuns = selectRows(db, 'SELECT * FROM ai_runs WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at ASC', [session.id]).map(mapAiRun)
-  const analysisCards = selectRows(db, 'SELECT * FROM analysis_cards WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at ASC', [session.id]).map(mapAnalysisCard)
+  const aiRuns = selectRows(db, 'SELECT * FROM ai_runs WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at ASC, rowid ASC', [session.id]).map(mapAiRun)
+  const analysisCards = selectRows(db, 'SELECT * FROM analysis_cards WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at ASC, rowid ASC', [session.id]).map(mapAnalysisCard)
+  const aiRunsById = new Map(aiRuns.map((run) => [run.id, run]))
+  const latestMarketAnalysisCard = [...analysisCards]
+    .reverse()
+    .find((card) => aiRunsById.get(card.ai_run_id)?.prompt_kind === 'market-analysis')
+    ?? null
   const deletedAiRuns = selectRows(db, 'SELECT id FROM ai_runs WHERE session_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC, created_at DESC', [session.id])
     .map((row) => String(row.id))
   const evaluations = selectRows(db, 'SELECT * FROM evaluations WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at ASC', [session.id]).map(mapEvaluation)
-  const screenshotRows = selectRows(db, 'SELECT * FROM screenshots WHERE session_id = ? ORDER BY created_at ASC', [session.id])
+  const screenshotRows = selectRows(db, 'SELECT * FROM screenshots WHERE session_id = ? ORDER BY created_at ASC, rowid ASC', [session.id])
   const screenshotIds = screenshotRows.map((row) => String(row.id))
   const annotationsByShot = loadAnnotationsForScreenshots(db, screenshotIds)
   const screenshots = screenshotRows
@@ -334,7 +397,7 @@ export const loadSessionWorkbench = (
     evaluations,
     panels: {
       my_realtime_view: realtimeViewBlock?.content_md ?? (currentContext.trade_id ? '' : session.my_realtime_view),
-      ai_summary: analysisCards[analysisCards.length - 1]?.summary_short ?? '还没有 AI 摘要。',
+      ai_summary: latestMarketAnalysisCard?.summary_short ?? '还没有 AI 摘要。',
       trade_plan: session.trade_plan_md,
     },
     composer_shell: {
@@ -360,13 +423,17 @@ export const loadSessionWorkbench = (
 }
 
 export const loadTradeDetail = (db: Database.Database, tradeId?: string): TradeDetailPayload => {
-  const allTrades = selectRows(db, 'SELECT * FROM trades WHERE deleted_at IS NULL ORDER BY opened_at ASC').map(mapTrade)
+  const allTrades = selectRows(db, 'SELECT * FROM trades WHERE deleted_at IS NULL ORDER BY opened_at ASC, rowid ASC').map(mapTrade)
   const currentContext = getCurrentContext(db)
   const resolvedTradeId = tradeId ?? resolveTradeForCurrentContext(allTrades, currentContext.trade_id)?.id ?? getFirstId(db, 'trades', 'opened_at')
   const trade = loadTradeById(db, resolvedTradeId)
   const session = mapSession(db.prepare('SELECT * FROM sessions WHERE id = ? LIMIT 1').get(trade.session_id) as Record<string, unknown>)
-  const relatedEvents = selectRows(db, 'SELECT * FROM events WHERE trade_id = ? AND deleted_at IS NULL ORDER BY occurred_at ASC', [trade.id]).map(mapEvent)
-  const analysisCards = selectRows(db, 'SELECT * FROM analysis_cards WHERE trade_id = ? AND deleted_at IS NULL ORDER BY created_at ASC', [trade.id]).map(mapAnalysisCard)
+  const relatedEvents = selectRows(db, 'SELECT * FROM events WHERE trade_id = ? AND deleted_at IS NULL ORDER BY occurred_at ASC, rowid ASC', [trade.id]).map(mapEvent)
+  const aiRecords = loadTradeAiRecordChains(db, trade.id)
+  const aiGroups = groupTradeAiRecordChains(aiRecords)
+  const analysisCards = aiRecords
+    .map((record) => record.analysis_card)
+    .filter((record): record is NonNullable<typeof record> => record != null)
   const screenshots = loadTradeScreenshots(db, trade.id)
   const contentBlocks = attachMoveHistory(db, loadTradeContentBlocks(db, trade.session_id, trade.id))
   const executionEvents = relatedEvents.filter((event) => event.event_type.startsWith('trade_'))
@@ -383,7 +450,8 @@ export const loadTradeDetail = (db: Database.Database, tradeId?: string): TradeD
     trade,
     related_events: relatedEvents,
     analysis_cards: analysisCards,
-    latest_analysis_card: analysisCards[analysisCards.length - 1] ?? null,
+    latest_analysis_card: aiGroups.latest_market_analysis?.analysis_card ?? null,
+    ai_groups: aiGroups,
     screenshots,
     setup_screenshot: selectPreferredSetupScreenshot(setupScreenshots),
     setup_screenshots: setupScreenshots,
@@ -392,7 +460,9 @@ export const loadTradeDetail = (db: Database.Database, tradeId?: string): TradeD
     exit_screenshots: exitScreenshots,
     content_blocks: contentBlocks,
     original_plan_blocks: originalPlanBlocks,
-    linked_ai_cards: analysisCards,
+    linked_ai_cards: aiGroups.market_analysis
+      .map((record) => record.analysis_card)
+      .filter((record): record is NonNullable<typeof record> => record != null),
     execution_events: executionEvents,
     review_blocks: reviewBlocks,
     review_draft_block: reviewDraftBlock,

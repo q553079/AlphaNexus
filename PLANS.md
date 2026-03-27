@@ -53,3 +53,6 @@ Implementation should follow the approved plan instead of improvising broad rewr
 - 2026-03-26: [Trade detail design-near upgrade](plans/2026-03-26-trade-detail-design-near.md)
 - 2026-03-27: [Capture overlay design-near increment](plans/2026-03-27-capture-overlay-design-near.md)
 - 2026-03-27: [Period review, export, and mainline e2e closure](plans/2026-03-27-period-review-export-e2e-closure.md)
+- 2026-03-27: [P0 session mainline hardening](plans/2026-03-27-p0-session-mainline-hardening.md)
+- 2026-03-27: [P2 knowledge and context input closure](plans/2026-03-27-p2-knowledge-context-input-closure.md)
+- 2026-03-27: [P3 trade loop closure](plans/2026-03-27-p3-trade-loop-closure.md)

@@ -164,8 +164,8 @@ export const insertAiRun = (db, nextIso, input) => {
   db.prepare(`
     INSERT INTO ai_runs (
       id, schema_version, created_at, session_id, event_id, provider, model, status,
-      prompt_kind, input_summary, finished_at, deleted_at
-    ) VALUES (?, 1, ?, ?, ?, 'deepseek', 'deepseek-reasoner', 'completed', ?, ?, ?, NULL)
+      prompt_kind, input_summary, prompt_preview, raw_response_text, structured_response_json, finished_at, deleted_at
+    ) VALUES (?, 1, ?, ?, ?, 'deepseek', 'deepseek-reasoner', 'completed', ?, ?, ?, ?, ?, ?, NULL)
   `).run(
     input.id,
     nextIso(),
@@ -173,6 +173,9 @@ export const insertAiRun = (db, nextIso, input) => {
     input.event_id ?? null,
     input.prompt_kind ?? 'market-analysis',
     input.input_summary ?? input.id,
+    input.prompt_preview ?? `${input.id} prompt`,
+    input.raw_response_text ?? `${input.id} raw response`,
+    input.structured_response_json ?? '{"summary_short":"mock"}',
     input.finished_at ?? nextIso(),
   )
 }
@@ -274,6 +277,9 @@ export const createCaptureSaveDependencies = (paths, input = {}) => ({
       model: 'mock-model',
       prompt_kind: analysisInput.prompt_kind,
       input_summary: 'capture overlay regression',
+      prompt_preview: 'capture overlay regression prompt',
+      raw_response_text: '{"summary_short":"capture overlay regression analysis"}',
+      structured_response_json: '{"bias":"bullish","confidence_pct":68}',
       screenshot_id: analysisInput.screenshot_id ?? null,
       trade_id: screenshotTradeId,
       event_title: 'Capture overlay AI',

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   addToExistingTrade,
+  cancelExistingTrade,
   closeExistingTrade,
+  createWorkbenchNoteBlockForContext,
   getCurrentWorkbenchContext,
   getSessionWorkbench,
   getTradeDetail,
@@ -10,15 +12,23 @@ import {
   openTradeForSession,
   recordAiAnalysis,
   reduceExistingTrade,
+  retargetContentBlock,
   setCurrentWorkbenchContext,
   softDeleteAiRecord,
   softDeleteAnnotation,
+  softDeleteContentBlock,
   softDeleteScreenshot,
   undeleteAiRecord,
   undeleteAnnotation,
+  undeleteContentBlock,
   undeleteScreenshot,
+  updateWorkbenchNoteBlockContent,
   updateSessionRealtimeView,
 } from '../../src/main/domain/workbench-service.ts'
+import {
+  continueLauncherSession,
+  createLauncherSession,
+} from '../../src/main/domain/session-launcher-service.ts'
 import { selectCurrentTrade } from '../../src/shared/contracts/workbench.ts'
 import { createImportedScreenshotForContext } from '../../src/main/db/repositories/workbench-repository.ts'
 import {
@@ -37,6 +47,47 @@ import {
 } from './helpers.mjs'
 
 test('AlphaNexus workbench regression guards', async(t) => {
+  await t.test('launcher create and continue session keep active session and current context real', async() => {
+    await withTempDb('launcher-session-activation', async({ paths, db, nextIso }) => {
+      insertContract(db, nextIso, { id: 'contract_launcher_real', symbol: 'NQ' })
+
+      const first = await createLauncherSession(paths, {
+        contract_id: 'contract_launcher_real',
+        bucket: 'am',
+        title: 'first real session',
+        market_bias: 'neutral',
+        context_focus: 'first focus',
+        trade_plan_md: '',
+        tags: ['first'],
+      })
+      const second = await createLauncherSession(paths, {
+        contract_id: 'contract_launcher_real',
+        bucket: 'pm',
+        title: 'second real session',
+        market_bias: 'bullish',
+        context_focus: 'second focus',
+        trade_plan_md: '',
+        tags: ['second'],
+      })
+
+      let sessions = getSessionWorkbench(paths, { session_id: second.session.id })
+      let currentContext = getCurrentWorkbenchContext(paths, { session_id: second.session.id })
+      const [afterSecondPayload, afterSecondContext] = await Promise.all([sessions, currentContext])
+      assert.equal(afterSecondPayload.session.status, 'active')
+      assert.equal(afterSecondContext.session_id, second.session.id)
+
+      const continued = await continueLauncherSession(paths, { session_id: first.session.id })
+      assert.equal(continued.session.id, first.session.id)
+      const afterContinue = await getSessionWorkbench(paths, { session_id: first.session.id })
+      const afterContinueContext = await getCurrentWorkbenchContext(paths, { session_id: first.session.id })
+      const secondRow = db.prepare('SELECT status FROM sessions WHERE id = ? LIMIT 1').get(second.session.id)
+
+      assert.equal(afterContinue.session.status, 'active')
+      assert.equal(afterContinueContext.session_id, first.session.id)
+      assert.equal(secondRow.status, 'planned')
+    })
+  })
+
   await t.test('delete and restore flows stay query-safe', async() => {
     await withTempDb('delete-guards', async({ paths, db, nextIso }) => {
       insertPeriod(db, nextIso, { id: 'period_delete' })
@@ -240,6 +291,56 @@ test('AlphaNexus workbench regression guards', async(t) => {
     })
   })
 
+  await t.test('trade cancel writes terminal event and keeps review draft attached to the same trade', async() => {
+    await withTempDb('trade-cancel-lifecycle', async({ paths, db, nextIso }) => {
+      insertPeriod(db, nextIso, { id: 'period_trade_cancel' })
+      insertContract(db, nextIso, { id: 'contract_trade_cancel', symbol: 'NQ' })
+      insertSession(db, nextIso, {
+        id: 'session_trade_cancel',
+        contract_id: 'contract_trade_cancel',
+        period_id: 'period_trade_cancel',
+        title: 'trade cancel session',
+      })
+
+      const opened = await openTradeForSession(paths, {
+        session_id: 'session_trade_cancel',
+        side: 'short',
+        quantity: 1,
+        entry_price: 100,
+        stop_loss: 103,
+        take_profit: 96,
+        thesis: 'cancel when reclaim premise fails',
+      })
+      const canceled = await cancelExistingTrade(paths, {
+        trade_id: opened.trade.id,
+        reason_md: 'opening reclaim invalidated before full execution',
+      })
+
+      assert.equal(canceled.trade.status, 'canceled')
+      assert.equal(canceled.trade.exit_price, null)
+      assert.equal(canceled.trade.pnl_r, null)
+      assert.equal(canceled.trade.closed_at !== null, true)
+      assert.equal(canceled.event.event_type, 'trade_cancel')
+      assert.equal(canceled.event.trade_id, opened.trade.id)
+      assert.match(canceled.event.summary, /invalidated/)
+
+      const payload = await getSessionWorkbench(paths, { session_id: 'session_trade_cancel' })
+      assert.deepEqual(
+        payload.events.filter((eventItem) => eventItem.trade_id === opened.trade.id).map((eventItem) => eventItem.event_type),
+        ['trade_open', 'trade_cancel', 'review'],
+      )
+
+      const detail = await getTradeDetail(paths, { trade_id: opened.trade.id })
+      assert.equal(detail.trade.status, 'canceled')
+      assert.deepEqual(
+        detail.execution_events.map((eventItem) => eventItem.event_type),
+        ['trade_open', 'trade_cancel'],
+      )
+      assert.equal(detail.review_draft_block !== null, true)
+      assert.match(detail.review_draft_block?.content_md ?? '', /交易已取消/)
+    })
+  })
+
   await t.test('current trade selection prefers open trade, otherwise latest trade', async() => {
     await withTempDb('current-trade-selection', async({ paths, db, nextIso }) => {
       insertPeriod(db, nextIso, { id: 'period_current_trade' })
@@ -411,6 +512,9 @@ test('AlphaNexus workbench regression guards', async(t) => {
         model: 'mock-model',
         prompt_kind: 'market-analysis',
         input_summary: 'trade scoped ai',
+        prompt_preview: 'trade scoped ai prompt',
+        raw_response_text: '{"summary_short":"trade scoped analysis"}',
+        structured_response_json: '{"bias":"bearish"}',
         screenshot_id: null,
         trade_id: storedTradeContext.trade_id,
         event_title: 'Trade scoped AI',
@@ -474,6 +578,9 @@ test('AlphaNexus workbench regression guards', async(t) => {
         model: 'mock-model',
         prompt_kind: 'market-analysis',
         input_summary: 'session scoped ai',
+        prompt_preview: 'session scoped ai prompt',
+        raw_response_text: '{"summary_short":"session scoped analysis"}',
+        structured_response_json: '{"bias":"neutral"}',
         screenshot_id: null,
         trade_id: sessionContext.trade_id,
         event_title: 'Session scoped AI',
@@ -503,6 +610,88 @@ test('AlphaNexus workbench regression guards', async(t) => {
       assert.equal(finalPayload.events.find((eventItem) => eventItem.id === sessionNote.event_id)?.trade_id, null)
       assert.equal(finalPayload.events.find((eventItem) => eventItem.id === sessionAi.event.id)?.trade_id, null)
       assert.equal(finalPayload.target_options.find((option) => option.trade_id === null)?.is_current, true)
+    })
+  })
+
+  await t.test('standalone note blocks persist, autosave updates events, delete/restore sync timeline, and move keeps visibility', async() => {
+    await withTempDb('note-block-lifecycle', async({ paths, db, nextIso }) => {
+      insertPeriod(db, nextIso, { id: 'period_note_flow' })
+      insertContract(db, nextIso, { id: 'contract_note_flow', symbol: 'NQ' })
+      insertSession(db, nextIso, {
+        id: 'session_note_flow',
+        contract_id: 'contract_note_flow',
+        period_id: 'period_note_flow',
+        title: 'note lifecycle session',
+      })
+      insertTrade(db, nextIso, {
+        id: 'trade_note_flow',
+        session_id: 'session_note_flow',
+        symbol: 'NQ',
+        side: 'long',
+        status: 'open',
+        quantity: 1,
+        entry_price: 100,
+        stop_loss: 96,
+        take_profit: 108,
+        exit_price: null,
+        pnl_r: null,
+        closed_at: null,
+        thesis: 'note lifecycle trade',
+      })
+
+      const created = await createWorkbenchNoteBlockForContext(paths, {
+        session_id: 'session_note_flow',
+        trade_id: null,
+        title: '我的实时看法',
+        content_md: '第一次记录：只观察 opening reclaim，不急着追。'
+      })
+      assert.equal(created.context_type, 'session')
+      assert.equal(created.context_id, 'session_note_flow')
+      assert.equal(created.event_id !== null, true)
+
+      const updated = await updateWorkbenchNoteBlockContent(paths, {
+        block_id: created.id,
+        title: '我的实时看法（更新）',
+        content_md: '第二次记录：回踩确认后再考虑开仓。'
+      })
+      assert.equal(updated.title, '我的实时看法（更新）')
+
+      const payloadAfterUpdate = await getSessionWorkbench(paths, { session_id: 'session_note_flow' })
+      const noteEventAfterUpdate = payloadAfterUpdate.events.find((event) => event.id === updated.event_id)
+      assert.equal(noteEventAfterUpdate?.event_type, 'observation')
+      assert.equal(noteEventAfterUpdate?.title, '我的实时看法（更新）')
+      assert.equal(noteEventAfterUpdate?.summary, '第二次记录：回踩确认后再考虑开仓。')
+      assert.deepEqual(noteEventAfterUpdate?.content_block_ids, [updated.id])
+
+      await softDeleteContentBlock(paths, { block_id: updated.id })
+      const payloadAfterDelete = await getSessionWorkbench(paths, { session_id: 'session_note_flow' })
+      assert.equal(payloadAfterDelete.events.some((event) => event.id === updated.event_id), false)
+      assert.equal(payloadAfterDelete.content_blocks.find((block) => block.id === updated.id)?.soft_deleted, true)
+
+      await undeleteContentBlock(paths, { block_id: updated.id })
+      const payloadAfterRestore = await getSessionWorkbench(paths, { session_id: 'session_note_flow' })
+      const restoredEvent = payloadAfterRestore.events.find((event) => event.id === updated.event_id)
+      assert.equal(restoredEvent?.id, updated.event_id)
+      assert.equal(restoredEvent?.title, '我的实时看法（更新）')
+      assert.equal(restoredEvent?.trade_id, null)
+
+      const moved = await retargetContentBlock(paths, {
+        block_id: updated.id,
+        target_kind: 'trade',
+        session_id: 'session_note_flow',
+        trade_id: 'trade_note_flow',
+      })
+      assert.equal(moved.block.context_type, 'trade')
+      assert.equal(moved.block.context_id, 'trade_note_flow')
+      assert.equal(moved.block.event_id !== null, true)
+
+      const payloadAfterMove = await getSessionWorkbench(paths, { session_id: 'session_note_flow' })
+      const movedEvent = payloadAfterMove.events.find((event) => event.id === moved.block.event_id)
+      assert.equal(movedEvent?.trade_id, 'trade_note_flow')
+      assert.equal(movedEvent?.title, '我的实时看法（更新）')
+      assert.deepEqual(movedEvent?.content_block_ids, [updated.id])
+      assert.equal(payloadAfterMove.events.some((event) => event.id === updated.event_id), false)
+      assert.equal(payloadAfterMove.content_blocks.find((block) => block.id === updated.id)?.move_history.length, 1)
     })
   })
 })

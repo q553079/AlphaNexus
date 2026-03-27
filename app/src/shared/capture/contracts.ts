@@ -1,7 +1,34 @@
 import { z } from 'zod'
-import { AnnotationSchema, ScreenshotSchema } from '@shared/contracts/content'
+import {
+  AnnotationSemanticTypeSchema,
+  AnnotationShapeSchema,
+  ScreenshotSchema,
+} from '@shared/contracts/content'
 import { EntityIdSchema } from '@shared/contracts/base'
 import { CaptureKindSchema, SourceViewSchema } from '@shared/contracts/current-context'
+
+const AnnotationDraftInputSchema = z.object({
+  shape: AnnotationShapeSchema,
+  label: z.string().min(1),
+  title: z.string().trim().min(1).optional(),
+  semantic_type: AnnotationSemanticTypeSchema.nullable().optional(),
+  color: z.string().min(1),
+  x1: z.number(),
+  y1: z.number(),
+  x2: z.number(),
+  y2: z.number(),
+  text: z.string().nullable().optional(),
+  note_md: z.string().optional(),
+  add_to_memory: z.boolean().optional(),
+  stroke_width: z.number().positive().default(2),
+}).transform((annotation) => ({
+  ...annotation,
+  title: annotation.title?.trim() || annotation.label,
+  semantic_type: annotation.semantic_type ?? null,
+  text: annotation.text ?? null,
+  note_md: annotation.note_md ?? '',
+  add_to_memory: annotation.add_to_memory ?? false,
+}))
 
 export const ImportScreenshotInputSchema = z.object({
   session_id: EntityIdSchema,
@@ -14,23 +41,12 @@ export const ImportScreenshotInputSchema = z.object({
 
 export const SaveScreenshotAnnotationsInputSchema = z.object({
   screenshot_id: EntityIdSchema,
-  annotations: z.array(AnnotationSchema.omit({
-    id: true,
-    schema_version: true,
-    created_at: true,
-    updated_at: true,
-    deleted_at: true,
-  })),
+  annotations: z.array(AnnotationDraftInputSchema),
+  annotated_image_data_url: z.string().min(1).optional(),
+  annotation_document_json: z.string().min(2).optional(),
 })
 
-export const PendingSnipAnnotationSchema = AnnotationSchema.omit({
-  id: true,
-  schema_version: true,
-  created_at: true,
-  updated_at: true,
-  deleted_at: true,
-  screenshot_id: true,
-})
+export const PendingSnipAnnotationSchema = AnnotationDraftInputSchema
 
 export const CaptureResultSchema = z.object({
   screenshot: ScreenshotSchema,
@@ -105,14 +121,26 @@ export const SavePendingSnipInputSchema = z.object({
   target_context: CaptureTargetContextInputSchema.optional(),
   annotations: z.array(PendingSnipAnnotationSchema).max(64).optional(),
   note_text: z.string().trim().max(12_000).optional(),
+  annotated_image_data_url: z.string().min(1).optional(),
+  annotation_document_json: z.string().min(2).optional(),
   run_ai: z.boolean().default(false),
   kind: CaptureKindSchema.optional(),
+})
+
+export const CaptureTargetResolutionSchema = z.object({
+  target_kind: z.enum(['session', 'trade']),
+  session_id: EntityIdSchema,
+  trade_id: EntityIdSchema.nullable(),
+  target_label: z.string().min(1),
+  capture_kind: CaptureKindSchema,
+  resolution_note: z.string().nullable().default(null),
 })
 
 export const SavePendingSnipResultSchema = CaptureResultSchema.extend({
   created_note_block_id: EntityIdSchema.nullable().optional(),
   ai_run_id: EntityIdSchema.nullable().optional(),
   ai_error: z.string().nullable().optional(),
+  resolved_target: CaptureTargetResolutionSchema.nullable().optional(),
 })
 
 export type ImportScreenshotInput = z.infer<typeof ImportScreenshotInputSchema>
@@ -127,4 +155,5 @@ export type CaptureSelection = z.infer<typeof CaptureSelectionSchema>
 export type PendingSnipCapture = z.infer<typeof PendingSnipCaptureSchema>
 export type SnipCaptureSelectionInput = z.infer<typeof SnipCaptureSelectionInputSchema>
 export type SavePendingSnipInput = z.infer<typeof SavePendingSnipInputSchema>
+export type CaptureTargetResolution = z.infer<typeof CaptureTargetResolutionSchema>
 export type SavePendingSnipResult = z.infer<typeof SavePendingSnipResultSchema>

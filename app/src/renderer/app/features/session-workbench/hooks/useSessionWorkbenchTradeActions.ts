@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 import type {
   AddToTradeInput,
+  CancelTradeInput,
   CloseTradeInput,
   OpenTradeInput,
   ReduceTradeInput,
@@ -98,8 +99,27 @@ export const createSessionWorkbenchTradeActions = ({
     }
   }
 
+  const handleCancelTrade = async(input: CancelTradeInput) => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      setBusy(true)
+      const result = await alphaNexusApi.workbench.cancelTrade(input)
+      await refreshSession(payload.session.id)
+      setSelectedEventId(result.event.id)
+      setMessage('已取消当前交易线程，不计入正常离场结果。')
+    } catch (error) {
+      setMessage(error instanceof Error ? `取消失败：${error.message}` : '取消交易失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return {
     handleAddToTrade,
+    handleCancelTrade,
     handleCloseTrade,
     handleOpenTrade,
     handleReduceTrade,

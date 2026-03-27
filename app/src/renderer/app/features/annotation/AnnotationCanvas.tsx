@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { SectionCard } from '@app/components/SectionCard'
-import type { DraftAnnotation } from '@app/features/annotation/annotation-types'
+import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
 import {
   toPendingDraftAnnotation,
   toScreenshotDraftAnnotation,
@@ -11,10 +11,16 @@ import type { ScreenshotRecord } from '@shared/contracts/content'
 type AnnotationCanvasProps = {
   screenshot: ScreenshotRecord | null
   annotations: DraftAnnotation[]
+  candidateAnnotations?: PendingDraftAnnotation[]
   onChange: (annotations: DraftAnnotation[]) => void
 }
 
-export const AnnotationCanvas = ({ screenshot, annotations, onChange }: AnnotationCanvasProps) => {
+export const AnnotationCanvas = ({
+  screenshot,
+  annotations,
+  candidateAnnotations = [],
+  onChange,
+}: AnnotationCanvasProps) => {
   const [activeAnnotationIndex, setActiveAnnotationIndex] = useState<number | null>(null)
   const pendingAnnotations = useMemo(
     () => annotations.map(toPendingDraftAnnotation),
@@ -37,8 +43,9 @@ export const AnnotationCanvas = ({ screenshot, annotations, onChange }: Annotati
         <CaptureEditorSurface
           activeAnnotationIndex={activeAnnotationIndex}
           annotations={pendingAnnotations}
+          candidateAnnotations={candidateAnnotations}
           imageAlt={screenshot.caption ?? '已选截图'}
-          imageUrl={screenshot.asset_url}
+          imageUrl={screenshot.raw_asset_url}
           onActiveAnnotationIndexChange={setActiveAnnotationIndex}
           onAnnotationsChange={handleAnnotationsChange}
           selection={null}

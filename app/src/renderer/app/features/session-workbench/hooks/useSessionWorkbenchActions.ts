@@ -2,8 +2,13 @@ import type { Dispatch, SetStateAction } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 import { buildAnnotationKey } from '@app/features/anchors'
 import type { DraftAnnotation } from '@app/features/annotation/annotation-types'
+import {
+  renderAnnotatedImageDataUrl,
+  serializeAnnotationDocument,
+} from '@app/features/annotation/annotation-export'
 import type { AnnotationInspectorItem, MarketAnchorStatus, MarketAnchorView } from '@app/features/anchors'
-import type { ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
+import type { ComposerSuggestion } from '@app/features/composer/types'
+import type { AnnotationRecord, ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
 import type { EventRecord } from '@shared/contracts/event'
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import type { WorkbenchTab } from '../session-workbench-types'
@@ -99,9 +104,23 @@ export const createSessionWorkbenchActions = ({
 
     try {
       setBusy(true)
+      const annotatedImageDataUrl = await renderAnnotatedImageDataUrl({
+        image_url: selectedScreenshot.raw_asset_url,
+        source_width: selectedScreenshot.width,
+        source_height: selectedScreenshot.height,
+        annotations: draftAnnotations,
+      })
+      const annotationDocumentJson = serializeAnnotationDocument({
+        screenshot_id: selectedScreenshot.id,
+        source_width: selectedScreenshot.width,
+        source_height: selectedScreenshot.height,
+        annotations: draftAnnotations,
+      })
       await alphaNexusApi.capture.saveAnnotations({
         screenshot_id: selectedScreenshot.id,
         annotations: draftAnnotations,
+        annotated_image_data_url: annotatedImageDataUrl,
+        annotation_document_json: annotationDocumentJson,
       })
       await refreshSession(payload.session.id)
       setMessage(`已保存 ${draftAnnotations.length} 个标注到当前上下文。`)
@@ -182,6 +201,66 @@ export const createSessionWorkbenchActions = ({
     } finally {
       setBusy(false)
     }
+  }
+
+  const handleCreateNoteBlock = async(input?: {
+    title?: string
+    content_md?: string
+  }) => {
+    if (!payload) {
+      return null
+    }
+
+    try {
+      setBusy(true)
+      const result = await alphaNexusApi.workbench.createNoteBlock({
+        session_id: payload.current_context.session_id,
+        trade_id: payload.current_context.trade_id ?? null,
+        title: input?.title ?? '用户笔记',
+        content_md: input?.content_md ?? '',
+      })
+      await refreshSession(payload.session.id)
+      setMessage(payload.current_context.trade_id
+        ? '已在当前 Trade 上下文中新建笔记块。'
+        : '已在当前 Session 上下文中新建笔记块。')
+      return result.block
+    } catch (error) {
+      setMessage(error instanceof Error ? `创建失败：${error.message}` : '创建笔记块失败。')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleComposerSuggestionAccept = async(suggestion: ComposerSuggestion) => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      await alphaNexusApi.workbench.applySuggestionAction({
+        suggestion_id: suggestion.id,
+        suggestion_kind: 'composer',
+        action: 'keep',
+      })
+      setMessage(`已记录候选采纳：${suggestion.label}。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `记录采纳失败：${error.message}` : '记录 Composer 候选采纳失败。')
+    }
+  }
+
+  const handleUpdateNoteBlock = async(input: {
+    block_id: string
+    title: string
+    content_md: string
+  }) => {
+    if (!payload) {
+      return null
+    }
+
+    const result = await alphaNexusApi.workbench.updateNoteBlock(input)
+    await refreshSession(payload.session.id)
+    return result.block
   }
 
   const handleAnnotationSuggestionAction = async(
@@ -290,6 +369,42 @@ export const createSessionWorkbenchActions = ({
       setMessage(`已恢复标注：${result.annotation.label}。`)
     } catch (error) {
       setMessage(error instanceof Error ? `恢复失败：${error.message}` : '恢复标注失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleUpdateAnnotation = async(input: {
+    annotation_id: string
+    label: string
+    title: string
+    semantic_type: AnnotationRecord['semantic_type']
+    text: string | null
+    note_md: string
+    add_to_memory: boolean
+  }) => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      setBusy(true)
+      const result = await alphaNexusApi.workbench.updateAnnotation({
+        annotation_id: input.annotation_id,
+        label: input.label,
+        title: input.title,
+        semantic_type: input.semantic_type,
+        text: input.text,
+        note_md: input.note_md,
+        add_to_memory: input.add_to_memory,
+      })
+      await refreshSession(payload.session.id)
+      setSelectedScreenshotId(result.annotation.screenshot_id)
+      setMessage(result.annotation.add_to_memory
+        ? `已更新标注并加入记忆候选：${result.annotation.title}。`
+        : `已更新标注：${result.annotation.title}。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `标注更新失败：${error.message}` : '更新标注失败。')
     } finally {
       setBusy(false)
     }
@@ -456,11 +571,13 @@ export const createSessionWorkbenchActions = ({
   return {
     handleAdoptAnchorFromAnnotation,
     handleAnnotationSuggestionAction,
+    handleComposerSuggestionAccept,
     handleDeleteAiRecord,
     handleDeleteAnnotation,
     handleDeleteBlock,
     handleDeleteScreenshot,
     handleExport,
+    handleCreateNoteBlock,
     handleImportScreenshot,
     handleOpenSnipCapture,
     handleRestoreAiRecord,
@@ -471,5 +588,7 @@ export const createSessionWorkbenchActions = ({
     handleSaveAnnotations,
     handleSaveRealtimeView,
     handleSetAnchorStatus,
+    handleUpdateAnnotation,
+    handleUpdateNoteBlock,
   }
 }

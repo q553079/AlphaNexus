@@ -10,6 +10,7 @@ const tradeStatusLabels = {
   planned: '计划中',
   open: '持仓中',
   closed: '已关闭',
+  canceled: '已取消',
 } as const
 
 const tradeSideLabels = {
@@ -24,6 +25,7 @@ const eventTypeLabels = {
   trade_add: '加仓',
   trade_reduce: '减仓',
   trade_close: '平仓',
+  trade_cancel: '取消',
   screenshot: '截图',
   ai_summary: 'AI 摘要',
   review: '复盘',
@@ -98,11 +100,13 @@ const renderScreenshotSection = (
   }
 
   screenshots.forEach((screenshot, index) => {
+    const imageUrl = screenshot.annotated_asset_url ?? screenshot.raw_asset_url ?? screenshot.asset_url
     lines.push(`##### ${title} ${index + 1}`)
     lines.push('')
-    lines.push(`![${screenshot.caption ?? screenshot.id}](${screenshot.asset_url})`)
+    lines.push(`![${screenshot.caption ?? screenshot.id}](${imageUrl})`)
     lines.push('')
     lines.push(`_${screenshotKindLabels[screenshot.kind]} · ${screenshot.caption ?? screenshot.id}_`)
+    lines.push(`_Audit: raw=${screenshot.raw_file_path}; annotated=${screenshot.annotated_file_path ?? 'none'}; annotations=${screenshot.annotations_json_path ?? 'none'}_`)
     lines.push('')
   })
 
@@ -207,6 +211,39 @@ const renderReviewSection = (detail: TradeDetailPayload) => {
   return lines
 }
 
+const renderTradeReviewAiSection = (detail: TradeDetailPayload) => {
+  const lines = ['#### 交易级 AI 复盘', '']
+  if (detail.ai_groups.trade_review.length === 0) {
+    lines.push('当前还没有交易级 AI 复盘记录。', '')
+    return lines
+  }
+
+  detail.ai_groups.trade_review.forEach((record, index) => {
+    lines.push(`##### Trade Review AI ${index + 1}`)
+    lines.push('')
+    lines.push(`- 摘要：${compact(record.analysis_card?.summary_short ?? record.trade_review_structured?.summary_short) || '待补充'}`)
+    if (record.trade_review_structured) {
+      lines.push('- 做得好的地方：')
+      record.trade_review_structured.what_went_well.forEach((item) => {
+        lines.push(`  - ${item}`)
+      })
+      lines.push('- 出错点：')
+      record.trade_review_structured.mistakes.forEach((item) => {
+        lines.push(`  - ${item}`)
+      })
+      lines.push('- 下次改进：')
+      record.trade_review_structured.next_improvements.forEach((item) => {
+        lines.push(`  - ${item}`)
+      })
+      lines.push('')
+    }
+    lines.push(renderMarkdownBody(record.content_block?.content_md ?? record.analysis_card?.deep_analysis_md ?? '待补充'))
+    lines.push('')
+  })
+
+  return lines
+}
+
 const renderTradeThread = (detail: TradeDetailPayload, tradeIndex: number) => {
   const trade = detail.trade
   const lines = [
@@ -232,6 +269,7 @@ const renderTradeThread = (detail: TradeDetailPayload, tradeIndex: number) => {
   lines.push(...renderScreenshotSection('Exit 图', detail.exit_screenshots, '当前没有 exit 图。'))
   lines.push(...renderContentBlocks('原始观点', detail.original_plan_blocks, '当前没有额外的原始观点记录。'))
   lines.push(...renderAiCards(detail.linked_ai_cards, 'AI 摘要', '当前 trade thread 还没有关联 AI 记录。'))
+  lines.push(...renderTradeReviewAiSection(detail))
   lines.push(...renderExecutionEvents(detail.execution_events))
   lines.push(...renderReviewSection(detail))
 

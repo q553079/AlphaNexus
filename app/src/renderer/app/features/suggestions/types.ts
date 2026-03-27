@@ -4,7 +4,15 @@ export type AnnotationSuggestionView = {
   id: string
   source_annotation_key?: string
   label: string
+  title?: string
   semantic_type: string
+  shape: 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text'
+  color: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  text?: string | null
   reason_summary: string
   confidence_pct: number
   state: SuggestionState

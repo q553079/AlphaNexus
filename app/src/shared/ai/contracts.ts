@@ -30,9 +30,18 @@ export const AiAnalysisDraftSchema = z.object({
   supporting_factors: z.array(z.string().min(1)).min(1).max(8),
 })
 
+export const TradeReviewDraftSchema = z.object({
+  summary_short: z.string().min(1),
+  what_went_well: z.array(z.string().min(1)).min(1).max(5),
+  mistakes: z.array(z.string().min(1)).min(1).max(5),
+  next_improvements: z.array(z.string().min(1)).min(1).max(5),
+  deep_analysis_md: z.string().min(1),
+})
+
 export const RunAiAnalysisInputSchema = z.object({
   session_id: EntityIdSchema,
   screenshot_id: EntityIdSchema.nullable().optional(),
+  trade_id: EntityIdSchema.nullable().optional(),
   provider: AiProviderKindSchema.default('deepseek'),
   prompt_kind: z.enum(['market-analysis', 'trade-review', 'period-review']).default('market-analysis'),
 })
@@ -40,6 +49,7 @@ export const RunAiAnalysisInputSchema = z.object({
 export const RunMockAiAnalysisInputSchema = z.object({
   session_id: EntityIdSchema,
   screenshot_id: EntityIdSchema.nullable().optional(),
+  trade_id: EntityIdSchema.nullable().optional(),
   provider: AiProviderKindSchema.default('deepseek'),
   prompt_kind: z.enum(['market-analysis', 'trade-review', 'period-review']).default('market-analysis'),
 })
@@ -67,6 +77,7 @@ export const AiRunExecutionResultSchema = z.object({
 
 export type AiProviderConfig = z.infer<typeof AiProviderConfigSchema>
 export type AiAnalysisDraft = z.infer<typeof AiAnalysisDraftSchema>
+export type TradeReviewDraft = z.infer<typeof TradeReviewDraftSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
 export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>

@@ -1,5 +1,4 @@
 import type { AlphaNexusApi } from '@shared/contracts/workbench'
-import { bridgeApi } from './bridge'
-import { mockApi } from './mock-runtime'
+import { requireBridgeSection } from './bridge'
 
-export const knowledgeApi: AlphaNexusApi['knowledge'] = bridgeApi?.knowledge ?? mockApi.knowledge
+export const knowledgeApi: AlphaNexusApi['knowledge'] = requireBridgeSection('knowledge')

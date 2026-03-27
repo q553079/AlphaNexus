@@ -44,6 +44,7 @@ const tradeStatusLabels: Record<TradeRecord['status'], string> = {
   planned: '计划中',
   open: '持仓中',
   closed: '已关闭',
+  canceled: '已取消',
 }
 
 const eventTypeLabels: Record<EventRecord['event_type'], string> = {
@@ -53,6 +54,7 @@ const eventTypeLabels: Record<EventRecord['event_type'], string> = {
   trade_add: '加仓',
   trade_reduce: '减仓',
   trade_close: '平仓',
+  trade_cancel: '取消',
   screenshot: '截图',
   ai_summary: 'AI 摘要',
   review: '复盘',

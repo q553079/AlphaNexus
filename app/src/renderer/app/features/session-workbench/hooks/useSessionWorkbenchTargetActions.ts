@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
-import type { ContentBlockRecord } from '@shared/contracts/content'
+import type { ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
 import type {
   CurrentTargetOption,
   CurrentTargetOptionsPayload,
@@ -75,8 +75,36 @@ export const createSessionWorkbenchTargetActions = ({
     }
   }
 
+  const handleMoveScreenshot = async(screenshot: ScreenshotRecord, option: CurrentTargetOption) => {
+    if (!payload) {
+      return
+    }
+
+    if (option.target_kind === 'period') {
+      setMessage('截图暂不支持直接挂到 Period 目标，请改挂到具体 Session 或 Trade。')
+      return
+    }
+
+    try {
+      setBusy(true)
+      await alphaNexusApi.workbench.moveScreenshot({
+        screenshot_id: screenshot.id,
+        target_kind: option.target_kind,
+        session_id: option.session_id,
+        trade_id: option.target_kind === 'trade' ? option.trade_id ?? null : null,
+      })
+      await refreshSession(payload.session.id)
+      setMessage(`已将截图“${screenshot.caption ?? screenshot.id}”改挂载到 ${option.label}。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `截图改挂载失败：${error.message}` : '改挂载截图失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return {
     handleMoveContentBlock,
+    handleMoveScreenshot,
     handleSetCurrentTarget,
   }
 }

@@ -1,9 +1,23 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { safeStorage } from 'electron'
+import * as electron from 'electron'
 import { z } from 'zod'
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { AiProviderKindSchema } from '@shared/contracts/analysis'
+
+type SafeStorageLike = {
+  decryptString: (buffer: Buffer) => string
+  encryptString: (value: string) => Buffer
+  isEncryptionAvailable: () => boolean
+}
+
+const fallbackSafeStorage: SafeStorageLike = {
+  decryptString: (buffer) => buffer.toString('utf8'),
+  encryptString: (value) => Buffer.from(value, 'utf8'),
+  isEncryptionAvailable: () => false,
+}
+
+const safeStorage = (electron as { safeStorage?: SafeStorageLike }).safeStorage ?? fallbackSafeStorage
 
 const PersistedProviderConfigSchema = z.object({
   provider: AiProviderKindSchema,

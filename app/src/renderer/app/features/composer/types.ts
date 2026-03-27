@@ -5,9 +5,11 @@ export type ComposerSuggestion = {
   type: ComposerSuggestionType
   label: string
   text: string
-  source?: 'knowledge' | 'rule' | 'ai' | 'history'
+  source?: 'system-template' | 'knowledge' | 'rule' | 'ai' | 'history'
   rationale?: string
-  ranking_reasons?: string[]
+  ranking_reason?: string
+  confidence_pct?: number
+  knowledge_card_id?: string | null
 }
 
 export type ApprovedKnowledgeHit = {
@@ -15,6 +17,8 @@ export type ApprovedKnowledgeHit = {
   title: string
   summary: string
   relevance_score?: number
+  fragment_excerpt?: string
+  match_reasons?: string[]
 }
 
 export type ComposerShellData = {

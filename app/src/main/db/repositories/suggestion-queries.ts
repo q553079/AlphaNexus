@@ -63,7 +63,7 @@ const inferTradeState = (tradeStatus: string | null) => {
   if (tradeStatus === 'open') {
     return 'manage'
   }
-  if (tradeStatus === 'closed') {
+  if (tradeStatus === 'closed' || tradeStatus === 'canceled') {
     return 'post_trade'
   }
   return 'exit'
@@ -220,7 +220,10 @@ export const listSimilarCaseCandidates = (
       (
         SELECT ac.summary_short
         FROM analysis_cards ac
+        INNER JOIN ai_runs ar ON ar.id = ac.ai_run_id
         WHERE ac.session_id = s.id AND ac.deleted_at IS NULL
+          AND ar.deleted_at IS NULL
+          AND ar.prompt_kind = 'market-analysis'
         ORDER BY ac.created_at DESC
         LIMIT 1
       ) AS analysis_summary,

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { AuditFieldsSchema, EntityIdSchema, IsoDateTimeSchema } from '@shared/contracts/base'
-import { AnnotationShapeSchema } from '@shared/contracts/content'
+import { AnnotationShapeSchema, AnnotationSemanticTypeSchema } from '@shared/contracts/content'
 
 export const AiProviderKindSchema = z.enum(['deepseek', 'openai', 'anthropic', 'custom-http'])
 
@@ -17,7 +17,8 @@ export const AnnotationSuggestionSchema = z.object({
   screenshot_id: EntityIdSchema,
   source_annotation_id: EntityIdSchema.nullable().optional(),
   label: z.string().min(1),
-  semantic_type: z.string().min(1).nullable().optional(),
+  title: z.string().min(1).optional(),
+  semantic_type: AnnotationSemanticTypeSchema.nullable().optional(),
   shape: AnnotationShapeSchema,
   color: z.string().min(1),
   x1: z.number(),
@@ -78,6 +79,9 @@ export const AiRunSchema = AuditFieldsSchema.extend({
   status: z.enum(['mocked', 'queued', 'completed', 'failed']),
   prompt_kind: z.enum(['market-analysis', 'trade-review', 'period-review']),
   input_summary: z.string(),
+  prompt_preview: z.string(),
+  raw_response_text: z.string(),
+  structured_response_json: z.string(),
   finished_at: IsoDateTimeSchema.nullable(),
 })
 

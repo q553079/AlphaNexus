@@ -6,7 +6,7 @@ import {
   resolveLocalProviderSecret,
   writePersistedProviderConfigs,
 } from '@main/ai/provider-config-storage'
-import { getSessionWorkbench, recordAiAnalysis } from '@main/domain/workbench-service'
+import { getSessionWorkbench, getTradeDetail, recordAiAnalysis } from '@main/domain/workbench-service'
 import {
   buildActiveAnchorRuntimeSummary,
   getApprovedKnowledgeRuntime,
@@ -29,14 +29,22 @@ import {
   SaveAiProviderConfigInputSchema,
   type AiAnalysisDraft,
   type AiProviderConfig,
+  type TradeReviewDraft,
 } from '@shared/ai/contracts'
 import type { ScreenshotRecord } from '@shared/contracts/content'
-import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
+import type { SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
 
 const resolveExplicitContextTrade = (payload: SessionWorkbenchPayload) =>
   payload.current_context.trade_id
     ? payload.trades.find((trade) => trade.id === payload.current_context.trade_id) ?? null
     : null
+
+const resolveTradeFromInput = (
+  payload: SessionWorkbenchPayload,
+  tradeId?: string | null,
+) => tradeId
+  ? payload.trades.find((trade) => trade.id === tradeId) ?? null
+  : null
 
 const resolveTradeFromScreenshot = (
   payload: SessionWorkbenchPayload,
@@ -57,8 +65,11 @@ const resolveTradeFromScreenshot = (
 
 const resolveScopedTrade = (
   payload: SessionWorkbenchPayload,
+  tradeId?: string | null,
   screenshotId?: string | null,
-) => resolveTradeFromScreenshot(payload, screenshotId) ?? resolveExplicitContextTrade(payload)
+) => resolveTradeFromInput(payload, tradeId)
+  ?? resolveTradeFromScreenshot(payload, screenshotId)
+  ?? resolveExplicitContextTrade(payload)
 
 const providerCapabilities: Record<AiProviderConfig['provider'], Pick<AiProviderConfig, 'supports_base_url_override' | 'supports_local_api_key'>> = {
   deepseek: {
@@ -193,6 +204,11 @@ const biasLabels: Record<AiAnalysisDraft['bias'], string> = {
   neutral: '中性',
 }
 
+const isTradeReviewDraft = (
+  analysis: AiAnalysisDraft | TradeReviewDraft,
+): analysis is TradeReviewDraft =>
+  'what_went_well' in analysis
+
 const summarizeInput = (value: string) => {
   const compact = value.replace(/\s+/g, ' ').trim()
   if (!compact) {
@@ -226,16 +242,23 @@ const buildScreenshotContext = (screenshot: ScreenshotRecord | null) => {
 
 const buildPromptPreview = (
   payload: SessionWorkbenchPayload,
-  input: { prompt_kind: 'market-analysis' | 'trade-review' | 'period-review', screenshot_id?: string | null },
+  input: {
+    prompt_kind: 'market-analysis' | 'trade-review' | 'period-review'
+    screenshot_id?: string | null
+    trade_id?: string | null
+  },
   context?: Parameters<typeof buildMarketAnalysisPrompt>[1],
+  tradeDetail?: TradeDetailPayload | null,
 ) => {
   const basePrompt = input.prompt_kind === 'trade-review'
-    ? buildTradeReviewPrompt(payload, context)
+    ? buildTradeReviewPrompt(tradeDetail ?? (() => {
+      throw new Error('trade-review 缺少 trade detail 上下文。')
+    })(), context)
     : input.prompt_kind === 'period-review'
       ? buildPeriodReviewPrompt([payload.session.title], context)
       : buildMarketAnalysisPrompt(payload, context)
 
-  if (!input.screenshot_id) {
+  if (!input.screenshot_id || input.prompt_kind === 'trade-review') {
     return basePrompt
   }
 
@@ -247,28 +270,31 @@ const buildPromptPreview = (
   return [basePrompt, buildScreenshotContext(screenshot)].join('\n\n')
 }
 
-const inferTradeState = (payload: SessionWorkbenchPayload, screenshotId?: string | null) => {
-  const scopedTrade = resolveScopedTrade(payload, screenshotId)
+const inferTradeState = (
+  payload: SessionWorkbenchPayload,
+  input?: { screenshot_id?: string | null, trade_id?: string | null },
+) => {
+  const scopedTrade = resolveScopedTrade(payload, input?.trade_id, input?.screenshot_id)
   if (!scopedTrade) {
     return 'pre_entry'
   }
-  if (scopedTrade.status === 'closed') {
-    return 'exit'
+  if (scopedTrade.status === 'closed' || scopedTrade.status === 'canceled') {
+    return 'post_trade'
   }
-  return scopedTrade.exit_price ? 'exit' : 'manage'
+  return 'manage'
 }
 
 const buildPromptContext = async(
   paths: LocalFirstPaths,
   payload: SessionWorkbenchPayload,
-  input?: { screenshot_id?: string | null },
+  input?: { screenshot_id?: string | null, trade_id?: string | null },
 ) => {
-  const scopeTrade = resolveScopedTrade(payload, input?.screenshot_id)
+  const scopeTrade = resolveScopedTrade(payload, input?.trade_id, input?.screenshot_id)
   const [runtime, activeAnchors] = await Promise.all([
     getApprovedKnowledgeRuntime(paths, {
       contract_scope: payload.contract.symbol,
       tags: payload.session.tags,
-      trade_state: inferTradeState(payload, input?.screenshot_id),
+      trade_state: inferTradeState(payload, input),
       context_tags: payload.session.tags,
       limit: 6,
     }),
@@ -301,43 +327,117 @@ const buildPromptContext = async(
   }
 }
 
-const buildAiContentMarkdown = (
+const buildTradeReviewMarkdown = (
   providerLabel: string,
-  promptKind: 'market-analysis' | 'trade-review' | 'period-review',
-  analysis: AiAnalysisDraft,
+  analysis: TradeReviewDraft,
 ) => [
-  `# ${providerLabel} ${promptKindTitle[promptKind]}`,
+  `# ${providerLabel} ${promptKindTitle['trade-review']}`,
   '',
   '## 摘要',
   '',
   analysis.summary_short,
   '',
-  '## 直接结论',
+  '## 做得好的地方',
   '',
-  `- 偏向：${biasLabels[analysis.bias]}`,
-  `- 置信度：${analysis.confidence_pct}%`,
-  `- 反转概率：${analysis.reversal_probability_pct}%`,
-  `- 入场区间：${analysis.entry_zone}`,
-  `- 止损：${analysis.stop_loss}`,
-  `- 止盈：${analysis.take_profit}`,
-  `- 失效条件：${analysis.invalidation}`,
+  ...analysis.what_went_well.map((item) => `- ${item}`),
   '',
-  '## 支撑因素',
+  '## 出错点',
   '',
-  ...analysis.supporting_factors.map((factor) => `- ${factor}`),
+  ...analysis.mistakes.map((item) => `- ${item}`),
+  '',
+  '## 下次改进',
+  '',
+  ...analysis.next_improvements.map((item) => `- ${item}`),
   '',
   '## 深度分析',
   '',
   analysis.deep_analysis_md,
 ].join('\n')
 
+const buildAiContentMarkdown = (
+  providerLabel: string,
+  promptKind: 'market-analysis' | 'trade-review' | 'period-review',
+  analysis: AiAnalysisDraft | TradeReviewDraft,
+) => {
+  if (promptKind === 'trade-review' && isTradeReviewDraft(analysis)) {
+    return buildTradeReviewMarkdown(providerLabel, analysis)
+  }
+
+  const marketAnalysis = analysis as AiAnalysisDraft
+  return [
+    `# ${providerLabel} ${promptKindTitle[promptKind]}`,
+    '',
+    '## 摘要',
+    '',
+    marketAnalysis.summary_short,
+    '',
+    '## 直接结论',
+    '',
+    `- 偏向：${biasLabels[marketAnalysis.bias]}`,
+    `- 置信度：${marketAnalysis.confidence_pct}%`,
+    `- 反转概率：${marketAnalysis.reversal_probability_pct}%`,
+    `- 入场区间：${marketAnalysis.entry_zone}`,
+    `- 止损：${marketAnalysis.stop_loss}`,
+    `- 止盈：${marketAnalysis.take_profit}`,
+    `- 失效条件：${marketAnalysis.invalidation}`,
+    '',
+    '## 支撑因素',
+    '',
+    ...marketAnalysis.supporting_factors.map((factor) => `- ${factor}`),
+    '',
+    '## 深度分析',
+    '',
+    marketAnalysis.deep_analysis_md,
+  ].join('\n')
+}
+
+const mapStructuredOutputToPersistedAnalysis = (
+  promptKind: 'market-analysis' | 'trade-review' | 'period-review',
+  analysis: AiAnalysisDraft | TradeReviewDraft,
+) => {
+  if (promptKind === 'trade-review' && isTradeReviewDraft(analysis)) {
+    return {
+      bias: 'neutral' as const,
+      confidence_pct: 0,
+      reversal_probability_pct: 0,
+      entry_zone: 'trade-review',
+      stop_loss: 'trade-review',
+      take_profit: 'trade-review',
+      invalidation: 'trade-review',
+      summary_short: analysis.summary_short,
+      deep_analysis_md: analysis.deep_analysis_md,
+      supporting_factors: analysis.what_went_well.slice(0, 4),
+    }
+  }
+
+  return analysis as AiAnalysisDraft
+}
+
+const resolveTradeReviewAttachments = (detail: TradeDetailPayload) => {
+  const ordered = [
+    detail.setup_screenshot?.id ?? null,
+    detail.exit_screenshot?.id ?? null,
+  ].filter((value): value is string => Boolean(value))
+
+  return [...new Set(ordered)]
+}
+
 export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, rawInput: unknown) => {
   const input = RunAiAnalysisInputSchema.parse(rawInput)
   const payload = await getSessionWorkbench(paths, { session_id: input.session_id })
+  const scopedTrade = resolveScopedTrade(payload, input.trade_id ?? null, input.screenshot_id ?? null)
+  const tradeDetail = input.prompt_kind === 'trade-review'
+    ? (scopedTrade ? await getTradeDetail(paths, { trade_id: scopedTrade.id }) : null)
+    : null
+  if (input.prompt_kind === 'trade-review' && !tradeDetail) {
+    throw new Error('trade-review 必须绑定到一笔真实 Trade。')
+  }
+
   const promptContext = await buildPromptContext(paths, payload, {
     screenshot_id: input.screenshot_id ?? null,
+    trade_id: scopedTrade?.id ?? null,
   })
-  const promptPreview = buildPromptPreview(payload, input, promptContext)
+  const promptPreview = buildPromptPreview(payload, input, promptContext, tradeDetail)
   const providerConfigs = await mergeProviderConfigs(paths, env)
   const providerConfig = providerConfigs.find((config) => config.provider === input.provider)
 
@@ -367,23 +467,31 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     payload,
     promptPreview,
     providerSecret,
+    attachment_screenshot_ids: input.prompt_kind === 'trade-review'
+      ? resolveTradeReviewAttachments(tradeDetail!)
+      : input.screenshot_id
+        ? [input.screenshot_id]
+        : [],
   })
 
-  const scopedTrade = resolveScopedTrade(payload, input.screenshot_id ?? null)
   const providerLabel = providerConfig.label
+  const persistedAnalysis = mapStructuredOutputToPersistedAnalysis(input.prompt_kind, adapterResult.analysis)
   const persisted = await recordAiAnalysis(paths, {
     session_id: input.session_id,
     provider: input.provider,
     model: adapterResult.model,
     prompt_kind: input.prompt_kind,
     input_summary: summarizeInput(promptPreview),
+    prompt_preview: promptPreview,
+    raw_response_text: adapterResult.raw_output,
+    structured_response_json: JSON.stringify(adapterResult.analysis),
     screenshot_id: input.screenshot_id ?? null,
     trade_id: scopedTrade?.id ?? null,
     event_title: `${providerLabel} ${promptKindTitle[input.prompt_kind]}`,
-    block_title: `${providerLabel} 摘要`,
+    block_title: input.prompt_kind === 'trade-review' ? `${providerLabel} 交易复盘` : `${providerLabel} 摘要`,
     summary_short: adapterResult.analysis.summary_short,
     content_md: buildAiContentMarkdown(providerLabel, input.prompt_kind, adapterResult.analysis),
-    analysis: adapterResult.analysis,
+    analysis: persistedAnalysis,
   })
 
   if (promptContext.runtime_hits.length > 0) {
@@ -416,7 +524,11 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
 export const runMockAiAnalysis = async(paths: LocalFirstPaths, rawInput: unknown) => {
   const input = RunMockAiAnalysisInputSchema.parse(rawInput)
   const payload = await getSessionWorkbench(paths, { session_id: input.session_id })
-  const promptPreview = buildPromptPreview(payload, input)
+  const scopedTrade = resolveScopedTrade(payload, input.trade_id ?? null, input.screenshot_id ?? null)
+  const tradeDetail = input.prompt_kind === 'trade-review'
+    ? (scopedTrade ? await getTradeDetail(paths, { trade_id: scopedTrade.id }) : null)
+    : null
+  const promptPreview = buildPromptPreview(payload, input, undefined, tradeDetail)
 
   return MockAiRunResultSchema.parse({
     analysis_card: payload.analysis_cards[payload.analysis_cards.length - 1],

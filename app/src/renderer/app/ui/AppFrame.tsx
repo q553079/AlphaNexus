@@ -2,31 +2,67 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 
-const navItems = [
+const baseNavItems = [
   { to: '/', label: '首页' },
-  { to: '/sessions/session_20260325_am', label: 'Session 工作台' },
   { to: '/knowledge/review', label: 'Knowledge Review' },
-  { to: '/trades/trade_nq_long_1', label: '交易详情' },
-  { to: '/periods/period_2026w13', label: '周期复盘' },
   { to: '/settings/ai', label: 'AI 设置' },
   { to: '/exports', label: '导出' },
 ]
 
 export const AppFrame = () => {
   const [status, setStatus] = useState('booting')
+  const [navItems, setNavItems] = useState(baseNavItems)
   const navigate = useNavigate()
   const location = useLocation()
   const statusLabel = status === 'booting'
     ? '启动中'
     : status === 'alpha-nexus-mock'
       ? '模拟 API 已连接'
+      : status === 'bridge-unavailable'
+        ? 'Preload Bridge 不可用'
       : status
 
   useEffect(() => {
     void (async () => {
-      await alphaNexusApi.app.initializeDatabase()
-      const result = await alphaNexusApi.app.ping()
-      setStatus(result)
+      try {
+        await alphaNexusApi.app.initializeDatabase()
+        const [result, launcherHome] = await Promise.all([
+          alphaNexusApi.app.ping(),
+          alphaNexusApi.launcher.getHome().catch(() => null),
+        ])
+        setStatus(result)
+
+        const dynamicItems = [...baseNavItems]
+        const activeSession = launcherHome?.active_session ?? launcherHome?.recent_sessions[0] ?? null
+        if (activeSession) {
+          dynamicItems.splice(1, 0, {
+            to: `/sessions/${activeSession.id}`,
+            label: 'Session 工作台',
+          })
+
+          try {
+            const currentContext = await alphaNexusApi.workbench.getCurrentContext({
+              session_id: activeSession.id,
+              source_view: 'launcher',
+            })
+            if (currentContext.trade_id) {
+              dynamicItems.splice(2, 0, {
+                to: `/trades/${currentContext.trade_id}`,
+                label: '交易详情',
+              })
+            }
+            dynamicItems.splice(2, 0, {
+              to: `/periods/${currentContext.period_id}`,
+              label: '周期复盘',
+            })
+          } catch {}
+        }
+
+        setNavItems(dynamicItems)
+      } catch {
+        setStatus('bridge-unavailable')
+        setNavItems(baseNavItems)
+      }
     })()
   }, [])
 

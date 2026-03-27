@@ -303,6 +303,14 @@
 - 线程 C：Composer 基础 UI
 - 线程 D：标注语义化与候选标注层
 
+### 5A.5 兼容与迁移说明
+
+- `annotations` 增加语义字段：`title`、`semantic_type`、`note_md`、`add_to_memory`。
+- 数据迁移采用增量方式：旧行回填为 `title = label`、`note_md = text`、`add_to_memory = 0`，`semantic_type` 保持 `NULL`，因此历史截图与历史标注仍可直接读取。
+- Capture 标注输入保持向后兼容：旧 payload 即使没有携带这些新增字段，保存时也会自动补默认值，不会阻断截图、标注和事件落盘。
+- 知识审核发布新增 `edit-approve` 动作：允许审核时直接修订草稿并发布为 `approved`；旧的 `approve` 仍然兼容。
+- runtime 检索和 Composer 运行时上下文只读取 `approved` 知识卡；`draft` 只停留在导入与审核链路，不进入盘中主记录流程。
+
 ---
 
 ## 6. 阶段三：交易线程闭环
@@ -377,6 +385,23 @@
 - 线程 B：TradeDetail 页面
 - 线程 C：Exit 图快捷流程
 - 线程 D：交易级 AI 复盘 prompt 与输出
+
+### 6.5 兼容与迁移说明
+
+- 本阶段合同变更均为增量扩展：
+  - `trade.status` 新增 `canceled`
+  - `event.event_type` 新增 `trade_cancel`
+  - `TradeDetailPayload` 新增 `ai_groups`
+  - `RunAiAnalysisInput` / `RunMockAiAnalysisInput` 新增可选 `trade_id`
+  - `SavePendingSnipResult` 新增可选 `resolved_target`
+- 兼容性影响：
+  - 旧 Trade 行的 `planned` / `open` / `closed` 状态保持不变，读取逻辑向后兼容。
+  - 旧 Event 行不需要回填 `trade_cancel`，仅新产生的取消事件会使用该类型。
+  - 旧的 TradeDetail 调用方如果只消费 `latest_analysis_card` / `linked_ai_cards` 仍可继续工作；新增 `ai_groups` 只用于显式区分盘中分析与交易复盘。
+  - 旧 Capture 保存结果如果没有 `resolved_target`，前端仍按基础保存成功逻辑处理。
+- 迁移说明：
+  - 本次不需要 SQL 表结构迁移。相关字段均落在现有字符串列或 JSON 文本列中，新增枚举值和返回字段不会破坏历史数据。
+  - 旧 `ai_runs.structured_response_json` 保持原样；只有 `prompt_kind = trade-review` 的新记录才按交易复盘结构化字段解析。
 
 ---
 

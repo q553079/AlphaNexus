@@ -210,7 +210,9 @@ export const toPublicRuntimePayload = (payload: Awaited<ReturnType<typeof getApp
       tags: hit.tags,
       contract_scope: splitScope(hit.contract_scope),
       timeframe_scope: splitScope(hit.timeframe_scope),
-      relevance_score: 0.75,
+      relevance_score: hit.relevance_score,
+      fragment_excerpt: hit.fragment_excerpt,
+      match_reasons: hit.match_reasons,
     })),
   })
 
@@ -289,16 +291,40 @@ export const toPublicComposerShell = (
       tags: hit.tags,
       contract_scope: splitScope(hit.contract_scope),
       timeframe_scope: splitScope(hit.timeframe_scope),
-      relevance_score: 0.75,
+      relevance_score: hit.relevance_score,
+      fragment_excerpt: hit.fragment_excerpt,
+      match_reasons: hit.match_reasons,
     })),
-    suggestions: payload.suggestions.map((suggestion, index) => ({
-      id: `composer_suggestion_${index + 1}_${suggestion.source_card_id ?? 'local'}`,
+    suggestions: payload.suggestions.map((suggestion) => ({
+      id: suggestion.id,
       type: suggestion.kind,
-      label: suggestion.kind === 'template' ? '结构化模板' : '候选短句',
+      label: suggestion.label,
       text: suggestion.text,
+      source: suggestion.source_kind,
+      rationale: suggestion.reason_summary,
+      confidence_pct: Math.round(suggestion.rank_score * 100),
+      ranking_reason: suggestion.reason_summary,
+      knowledge_card_id: suggestion.source_card_id,
     })),
-    context_summary: 'Composer 仅消费 approved knowledge 的运行时命中结果。',
+    context_summary: payload.context_summary
+      ?? (payload.approved_knowledge_hits.length > 0
+        ? `当前基于 ${payload.approved_knowledge_hits.length} 条 approved knowledge 命中生成候选。`
+        : '当前没有命中的 approved knowledge，Composer 回退到本地结构化模板。'),
   })
+
+const composerSuggestionSource = (value: unknown) => {
+  if (
+    value === 'system-template'
+    || value === 'rule'
+    || value === 'knowledge'
+    || value === 'ai'
+    || value === 'history'
+  ) {
+    return value
+  }
+
+  return 'rule'
+}
 
 const suggestionColorBySemantic = (semanticType?: string | null) => {
   if (semanticType === 'support') {
@@ -342,9 +368,9 @@ export const toPublicComposerAiSuggestionsPayload = (payload: Awaited<ReturnType
     suggestions: payload.suggestions.map((suggestion) => ({
       id: suggestion.id,
       type: suggestion.kind,
-      label: suggestion.kind === 'template' ? '结构化模板' : suggestion.kind === 'completion' ? '补全建议' : '候选短句',
+      label: suggestion.label,
       text: suggestion.text,
-      source: suggestion.source_card_id ? 'knowledge' : 'rule',
+      source: composerSuggestionSource(suggestion.source_kind),
       rationale: suggestion.reason_summary,
       confidence_pct: Math.round(suggestion.rank_score * 100),
       ranking_reason: suggestion.reason_summary,
@@ -426,8 +452,9 @@ export const ingestReviewedKnowledgeSource = async(paths: LocalFirstPaths, input
 export const reviewKnowledgeCard = async(paths: LocalFirstPaths, input: ReviewKnowledgeCardInput) => {
   await reviewKnowledgeDraftCard(paths, {
     knowledge_card_id: input.card_id,
-    action: input.action === 'archive' ? 'archive' : 'approve',
+    action: input.action,
     reviewed_by: input.reviewed_by,
     review_note_md: input.review_note_md ?? '',
+    edit_payload: input.edit_payload,
   })
 }

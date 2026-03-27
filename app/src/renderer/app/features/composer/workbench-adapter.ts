@@ -20,7 +20,13 @@ const toSuggestionType = (value: unknown): ComposerSuggestionType => {
 }
 
 const toSuggestionSource = (value: unknown): ComposerSuggestion['source'] => {
-  if (value === 'knowledge' || value === 'rule' || value === 'ai' || value === 'history') {
+  if (
+    value === 'system-template'
+    || value === 'knowledge'
+    || value === 'rule'
+    || value === 'ai'
+    || value === 'history'
+  ) {
     return value
   }
   return undefined
@@ -38,7 +44,8 @@ const toComposerSuggestion = (value: unknown): ComposerSuggestion | null => {
     source?: unknown
     rationale?: unknown
     ranking_reason?: unknown
-    ranking_reasons?: unknown
+    confidence_pct?: unknown
+    knowledge_card_id?: unknown
   }
   const id = typeof raw.id === 'string' ? raw.id.trim() : ''
   const label = typeof raw.label === 'string' ? raw.label.trim() : ''
@@ -54,9 +61,9 @@ const toComposerSuggestion = (value: unknown): ComposerSuggestion | null => {
     text,
     source: toSuggestionSource(raw.source),
     rationale: typeof raw.rationale === 'string' ? raw.rationale : undefined,
-    ranking_reasons: typeof raw.ranking_reason === 'string'
-      ? [raw.ranking_reason]
-      : toStringArray(raw.ranking_reasons),
+    ranking_reason: typeof raw.ranking_reason === 'string' ? raw.ranking_reason : undefined,
+    confidence_pct: typeof raw.confidence_pct === 'number' ? raw.confidence_pct : undefined,
+    knowledge_card_id: typeof raw.knowledge_card_id === 'string' ? raw.knowledge_card_id : undefined,
   }
 }
 
@@ -74,6 +81,8 @@ const toApprovedKnowledgeHits = (value: unknown): ApprovedKnowledgeHit[] => {
         title?: unknown
         summary?: unknown
         relevance_score?: unknown
+        fragment_excerpt?: unknown
+        match_reasons?: unknown
       }
       const cardId = typeof raw.card_id === 'string' ? raw.card_id : ''
       const title = typeof raw.title === 'string' ? raw.title : ''
@@ -86,6 +95,8 @@ const toApprovedKnowledgeHits = (value: unknown): ApprovedKnowledgeHit[] => {
         title,
         summary,
         relevance_score: typeof raw.relevance_score === 'number' ? raw.relevance_score : undefined,
+        fragment_excerpt: typeof raw.fragment_excerpt === 'string' ? raw.fragment_excerpt : undefined,
+        match_reasons: toStringArray(raw.match_reasons),
       }
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)

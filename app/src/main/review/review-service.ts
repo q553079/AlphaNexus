@@ -22,6 +22,7 @@ const tradeEventLabels = {
   trade_add: '加仓',
   trade_reduce: '减仓',
   trade_close: '平仓',
+  trade_cancel: '取消',
 } as const
 
 const compactMarkdown = (value: string | null | undefined, fallback = '待补充') => {
@@ -40,13 +41,18 @@ const excerpt = (value: string | null | undefined) => {
 
 export const buildTradeReviewDraftMarkdown = (detail: TradeDetailPayload) => {
   const originalBlocks = detail.original_plan_blocks.slice(0, 4)
-  const latestAi = detail.latest_analysis_card ?? detail.linked_ai_cards[detail.linked_ai_cards.length - 1] ?? null
+  const latestAi = detail.ai_groups.latest_market_analysis?.analysis_card
+    ?? detail.latest_analysis_card
+    ?? detail.linked_ai_cards[detail.linked_ai_cards.length - 1]
+    ?? null
   const executionLines = detail.execution_events.length > 0
     ? detail.execution_events.map((event) => `- ${tradeEventLabels[event.event_type as keyof typeof tradeEventLabels] ?? event.event_type}: ${event.summary}`)
     : ['- 暂无执行事件。']
   const resultLine = detail.trade.status === 'closed'
     ? `- 当前结果：已平仓，平仓价 ${detail.trade.exit_price ?? '待补充'}，PnL ${detail.trade.pnl_r ?? '待补充'}R。`
-    : '- 当前结果：交易尚未闭环，结果待确认。'
+    : detail.trade.status === 'canceled'
+      ? '- 当前结果：交易线程已取消，不计入正常离场结果。'
+      : '- 当前结果：交易尚未闭环，结果待确认。'
   const exitLine = detail.exit_screenshots.length > 0
     ? `- Exit 图：已记录 ${detail.exit_screenshots.length} 张。`
     : '- Exit 图：尚未补齐。'
@@ -392,9 +398,14 @@ export const buildTradeDetailReviewSections = (input: {
 export const ensureTradeReviewDraft = async(paths: LocalFirstPaths, tradeId: string) => {
   const db = await getDatabase(paths)
   const detail = loadTradeDetail(db, tradeId)
+  const latestTradeEvent = [...detail.execution_events].pop()
+  const reviewOccurredAt = latestTradeEvent?.event_type === 'trade_close' || latestTradeEvent?.event_type === 'trade_cancel'
+    ? new Date(new Date(latestTradeEvent.occurred_at).getTime() + 1).toISOString()
+    : undefined
   return upsertTradeReviewDraftBlock(db, {
     trade_id: tradeId,
     content_md: buildTradeReviewDraftMarkdown(detail),
+    occurred_at: reviewOccurredAt,
   })
 }
 

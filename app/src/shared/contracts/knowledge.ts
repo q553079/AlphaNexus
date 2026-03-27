@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AuditFieldsSchema, EntityIdSchema, IsoDateTimeSchema } from '@shared/contracts/base'
+import { AnnotationSemanticTypeSchema } from '@shared/contracts/content'
 
 const StringListSchema = z.array(z.string().min(1))
 
@@ -20,19 +21,7 @@ export const KnowledgeCardTypeSchema = z.enum([
 export const KnowledgeCardStatusSchema = z.enum(['draft', 'approved', 'archived'])
 export const KnowledgeReviewActionSchema = z.enum(['approve', 'edit-approve', 'archive'])
 export const ComposerSuggestionTypeSchema = z.enum(['phrase', 'template', 'completion'])
-export const ComposerSuggestionSourceSchema = z.enum(['rule', 'knowledge'])
-export const AnnotationSemanticTypeSchema = z.enum([
-  'support',
-  'resistance',
-  'liquidity',
-  'fvg',
-  'imbalance',
-  'entry',
-  'invalidation',
-  'target',
-  'path',
-  'context',
-])
+export const ComposerSuggestionSourceSchema = z.enum(['system-template', 'rule', 'knowledge', 'ai', 'history'])
 export const MarketAnchorStatusSchema = z.enum(['active', 'invalidated', 'archived'])
 
 export const KnowledgeSourceSchema = AuditFieldsSchema.extend({
@@ -170,7 +159,17 @@ export const IngestKnowledgeSourceInputSchema = z.object({
   tags: StringListSchema.optional(),
   import_mode: z.enum(['manual', 'gemini']).default('manual'),
   file_path: z.string().min(1).optional(),
-  content: z.string().min(1),
+  content: z.string().default(''),
+}).superRefine((value, context) => {
+  const hasInlineContent = value.content.trim().length > 0
+  const hasFilePath = typeof value.file_path === 'string' && value.file_path.trim().length > 0
+  if (!hasInlineContent && !hasFilePath) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '需要提供资料内容或本地文件路径。',
+      path: ['content'],
+    })
+  }
 })
 
 export const IngestKnowledgeSourceResultSchema = z.object({

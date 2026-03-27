@@ -26,6 +26,7 @@ import {
 import {
   deriveSessionWorkbenchState,
 } from './modules/session-workbench-selection'
+import type { ScreenshotGalleryState } from './modules/session-screenshot-gallery'
 import {
   toDraftAnnotation,
 } from './modules/session-workbench-mappers'
@@ -56,6 +57,7 @@ export type SessionWorkbenchController = {
   payload: SessionWorkbenchPayload | null
   realtimeDraft: string
   realtimeViewBlock: ContentBlockRecord | null
+  screenshotGallery: ScreenshotGalleryState
   selectedEvent: EventRecord | null
   selectedScreenshot: ScreenshotRecord | null
   selectedScreenshotAnnotations: AnnotationRecord[]
@@ -64,6 +66,7 @@ export type SessionWorkbenchController = {
   handleDeleteAnnotation: (annotationId: string) => Promise<void>
   handleDeleteScreenshot: (screenshotId: string) => Promise<void>
   handleMoveContentBlock: (block: ContentBlockRecord, option: CurrentTargetOption) => Promise<void>
+  handleMoveScreenshot: (screenshot: ScreenshotRecord, option: CurrentTargetOption) => Promise<void>
   handleOpenTrade: (input: {
     side: 'long' | 'short'
     quantity: number
@@ -77,6 +80,11 @@ export type SessionWorkbenchController = {
     quantity: number
     price: number
   }) => Promise<void>
+  handleCreateNoteBlock: (input?: {
+    title?: string
+    content_md?: string
+  }) => Promise<ContentBlockRecord | null>
+  handleComposerSuggestionAccept: (suggestion: ComposerSuggestion) => Promise<void>
   handleReduceTrade: (input: {
     trade_id: string
     quantity: number
@@ -85,6 +93,10 @@ export type SessionWorkbenchController = {
   handleCloseTrade: (input: {
     trade_id: string
     exit_price: number
+  }) => Promise<void>
+  handleCancelTrade: (input: {
+    trade_id: string
+    reason_md?: string
   }) => Promise<void>
   handleAnnotationSuggestionAction: (suggestionId: string, action: 'keep' | 'merge' | 'discard') => Promise<void>
   handleDeleteBlock: (block: ContentBlockRecord) => Promise<void>
@@ -99,10 +111,25 @@ export type SessionWorkbenchController = {
   handleRunAnalysis: () => Promise<void>
   handleSaveAnnotations: () => Promise<void>
   handleSaveRealtimeView: () => Promise<void>
+  handleUpdateAnnotation: (input: {
+    annotation_id: string
+    label: string
+    title: string
+    semantic_type: AnnotationRecord['semantic_type']
+    text: string | null
+    note_md: string
+    add_to_memory: boolean
+  }) => Promise<void>
+  handleUpdateNoteBlock: (input: {
+    block_id: string
+    title: string
+    content_md: string
+  }) => Promise<ContentBlockRecord | null>
   handleSetCurrentContext: (option: CurrentTargetOption) => Promise<void>
   handleSetAnchorStatus: (anchorId: string, status: MarketAnchorStatus) => void
   refresh: (nextSessionId?: string) => Promise<void>
   selectEvent: (event: EventRecord) => void
+  selectScreenshot: (screenshotId: string) => void
   setActiveTab: (tab: WorkbenchTab) => void
   setDraftAnnotations: (annotations: DraftAnnotation[]) => void
   setRealtimeDraft: (value: string) => void
@@ -132,7 +159,14 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
 
   const refreshSession = async(nextSessionId?: string): Promise<SessionWorkbenchPayload | null> => {
     try {
-      const nextPayload = await alphaNexusApi.workbench.getSession(nextSessionId ? { session_id: nextSessionId } : undefined)
+      const requestedSessionId = nextSessionId ?? sessionId
+      const shouldContinueSession = requestedSessionId != null
+        && (payload == null || payload.session.id !== requestedSessionId)
+      if (shouldContinueSession) {
+        await alphaNexusApi.launcher.continueSession({ session_id: requestedSessionId })
+      }
+
+      const nextPayload = await alphaNexusApi.workbench.getSession(requestedSessionId ? { session_id: requestedSessionId } : undefined)
       setPayload(nextPayload)
       setSelectedEventId((current) =>
         current && nextPayload.events.some((event) => event.id === current)
@@ -199,6 +233,7 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     groundingHits,
     latestEvaluation,
     realtimeViewBlock,
+    screenshotGallery,
     selectedEvent,
     selectedScreenshot,
     selectedScreenshotAnnotations,
@@ -294,9 +329,10 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
       void refreshSession(payload.session.id).then(() => {
         setSelectedScreenshotId(result.screenshot.id)
         setSelectedEventId(result.created_event_id ?? result.screenshot.event_id)
+        const resolutionNote = result.resolved_target?.resolution_note
         setMessage(result.ai_error
-          ? `已完成本地保存，AI 未完成：${result.ai_error}`
-          : `已保存截图：${result.screenshot.caption ?? result.screenshot.id}`)
+          ? `已完成本地保存，AI 未完成：${result.ai_error}${resolutionNote ? ` ${resolutionNote}` : ''}`
+          : resolutionNote ?? `已保存截图：${result.screenshot.caption ?? result.screenshot.id}`)
       })
     })
   }), [payload?.session.id])
@@ -308,6 +344,14 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     }
   }
 
+  const selectScreenshot = (screenshotId: string) => {
+    setSelectedScreenshotId(screenshotId)
+    const screenshotEvent = payload?.events.find((event) => event.screenshot_id === screenshotId)
+    if (screenshotEvent) {
+      setSelectedEventId(screenshotEvent.id)
+    }
+  }
+
   const {
     handleAdoptAnchorFromAnnotation,
     handleAnnotationSuggestionAction,
@@ -316,6 +360,8 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleDeleteBlock,
     handleDeleteScreenshot,
     handleExport,
+    handleCreateNoteBlock,
+    handleComposerSuggestionAccept,
     handleImportScreenshot,
     handleOpenSnipCapture,
     handleRestoreAiRecord,
@@ -325,7 +371,9 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleRunAnalysis,
     handleSaveAnnotations,
     handleSaveRealtimeView,
+    handleUpdateAnnotation,
     handleSetAnchorStatus,
+    handleUpdateNoteBlock,
   } = createSessionWorkbenchActions({
     anchors,
     draftAnnotations,
@@ -344,6 +392,7 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
 
   const {
     handleAddToTrade,
+    handleCancelTrade,
     handleCloseTrade,
     handleOpenTrade,
     handleReduceTrade,
@@ -357,6 +406,7 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
 
   const {
     handleMoveContentBlock,
+    handleMoveScreenshot,
     handleSetCurrentTarget,
   } = createSessionWorkbenchTargetActions({
     payload,
@@ -390,6 +440,7 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     payload,
     realtimeDraft,
     realtimeViewBlock,
+    screenshotGallery,
     selectedEvent,
     selectedScreenshot,
     selectedScreenshotAnnotations,
@@ -398,10 +449,14 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleDeleteAnnotation,
     handleDeleteScreenshot,
     handleMoveContentBlock,
+    handleMoveScreenshot,
     handleOpenTrade,
     handleAddToTrade,
+    handleCreateNoteBlock,
+    handleComposerSuggestionAccept,
     handleReduceTrade,
     handleCloseTrade,
+    handleCancelTrade,
     handleAnnotationSuggestionAction,
     handleDeleteBlock,
     handleAdoptAnchorFromAnnotation,
@@ -415,10 +470,13 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleRunAnalysis,
     handleSaveAnnotations,
     handleSaveRealtimeView,
+    handleUpdateAnnotation,
+    handleUpdateNoteBlock,
     handleSetCurrentContext: handleSetCurrentTarget,
     handleSetAnchorStatus,
     refresh,
     selectEvent,
+    selectScreenshot,
     setActiveTab: setActiveTabState,
     setDraftAnnotations: setDraftAnnotationsState,
     setRealtimeDraft: setRealtimeDraftState,

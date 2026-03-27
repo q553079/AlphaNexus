@@ -115,6 +115,11 @@
   gap: 6px;
 }
 
+.capture-overlay-composer__checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
 .capture-overlay-composer__field span,
 .capture-overlay-composer__label {
   font-size: 13px;

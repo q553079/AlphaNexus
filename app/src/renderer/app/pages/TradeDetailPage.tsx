@@ -7,8 +7,10 @@ import { SectionCard } from '@app/components/SectionCard'
 import { TradeSnapshotCard } from '@app/components/TradeSnapshotCard'
 import { ContentBlockTargetManager } from '@app/features/context/ContentBlockTargetManager'
 import { FeedbackList } from '@app/features/review/FeedbackList'
+import { pickPreferredAnalysisProvider } from '@app/features/session-workbench/modules/session-workbench-mappers'
 import { TradeExecutionTimeline } from '@app/features/trade/TradeExecutionTimeline'
 import { TradeInsightBoard } from '@app/features/trade/TradeInsightBoard'
+import { TradeReviewAiPanel } from '@app/features/trade/TradeReviewAiPanel'
 import { TradeReviewDraftPanel } from '@app/features/trade/TradeReviewDraftPanel'
 import { TradeThreadMediaStrip } from '@app/features/trade/TradeThreadMediaStrip'
 import {
@@ -30,14 +32,19 @@ export const TradeDetailPage = () => {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
+  const loadDetail = async(nextTradeId?: string) => {
+    const nextPayload = await alphaNexusApi.workbench.getTradeDetail(nextTradeId ? { trade_id: nextTradeId } : undefined)
+    setPayload(nextPayload)
+    const nextTargets = await alphaNexusApi.workbench.listTargetOptions({
+      session_id: nextPayload.session.id,
+      include_period_targets: true,
+    })
+    setTargetOptions(nextTargets)
+    return nextPayload
+  }
+
   useEffect(() => {
-    void alphaNexusApi.workbench.getTradeDetail(tradeId ? { trade_id: tradeId } : undefined).then((nextPayload) => {
-      setPayload(nextPayload)
-      return alphaNexusApi.workbench.listTargetOptions({
-        session_id: nextPayload.session.id,
-        include_period_targets: true,
-      }).then(setTargetOptions)
-    }).catch(() => {
+    void loadDetail(tradeId).catch(() => {
       setTargetOptions(null)
     })
   }, [tradeId])
@@ -59,11 +66,39 @@ export const TradeDetailPage = () => {
         period_id: option.target_kind === 'period' ? option.period_id : undefined,
         trade_id: option.target_kind === 'trade' ? option.trade_id ?? null : null,
       })
-      const nextPayload = await alphaNexusApi.workbench.getTradeDetail({ trade_id: payload.trade.id })
-      setPayload(nextPayload)
+      await loadDetail(payload.trade.id)
       setMessage(`已将内容块“${block.title}”改挂载到 ${option.label}。`)
     } catch (error) {
       setMessage(error instanceof Error ? `改挂载失败：${error.message}` : '改挂载内容块失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRunTradeReview = async() => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      setBusy(true)
+      const providers = await alphaNexusApi.ai.listProviders()
+      const preferredProvider = pickPreferredAnalysisProvider(providers)
+      if (!preferredProvider) {
+        throw new Error('当前没有已启用且已配置完成的 AI provider。')
+      }
+
+      const result = await alphaNexusApi.ai.runAnalysis({
+        session_id: payload.session.id,
+        trade_id: payload.trade.id,
+        screenshot_id: payload.exit_screenshot?.id ?? payload.setup_screenshot?.id ?? null,
+        provider: preferredProvider.provider,
+        prompt_kind: 'trade-review',
+      })
+      await loadDetail(payload.trade.id)
+      setMessage(`${preferredProvider.label} 交易复盘已完成：${result.analysis_card.summary_short}`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `交易复盘失败：${error.message}` : '交易复盘失败。')
     } finally {
       setBusy(false)
     }
@@ -99,6 +134,10 @@ export const TradeDetailPage = () => {
             <article className="trade-detail__metric-card">
               <span>AI</span>
               <strong>{payload.linked_ai_cards.length}</strong>
+            </article>
+            <article className="trade-detail__metric-card">
+              <span>AI Review</span>
+              <strong>{payload.ai_groups.trade_review.length}</strong>
             </article>
             <article className="trade-detail__metric-card">
               <span>Execution</span>
@@ -197,17 +236,25 @@ export const TradeDetailPage = () => {
       </div>
 
       <div className="trade-detail__grid trade-detail__grid--two">
+        <SectionCard title="交易级 AI 复盘" subtitle="把 setup / exit / 计划 / 执行 / 结果送入同一笔 Trade 的 AI 复盘链路。">
+          <TradeReviewAiPanel
+            busy={busy}
+            onRun={() => void handleRunTradeReview()}
+            records={payload.ai_groups.trade_review}
+          />
+        </SectionCard>
+
         <SectionCard title="我的原始复盘 / Draft" subtitle="保留 review blocks 原文，和上面的结构化结论并列而不覆盖。">
           <TradeReviewDraftPanel
             blocks={payload.review_blocks}
             draftBlock={payload.review_draft_block}
           />
         </SectionCard>
-
-        <SectionCard title="自动反馈建议" subtitle="反馈只基于结构化证据，不自动篡改你的盘中记录。">
-          <FeedbackList emptyMessage="当前没有自动反馈建议。" items={payload.feedback_items} />
-        </SectionCard>
       </div>
+
+      <SectionCard title="自动反馈建议" subtitle="反馈只基于结构化证据，不自动篡改你的盘中记录。">
+        <FeedbackList emptyMessage="当前没有自动反馈建议。" items={payload.feedback_items} />
+      </SectionCard>
     </div>
   ) : <div className="empty-state">正在加载交易详情...</div>
 }

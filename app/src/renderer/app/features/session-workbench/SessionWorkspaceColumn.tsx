@@ -18,6 +18,7 @@ import type { ContentBlockRecord } from '@shared/contracts/content'
 import type { EvaluationRecord, TradeRecord } from '@shared/contracts/trade'
 import type { AiRecordChain, SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import { translateTradeSide } from '@app/ui/display-text'
+import { SessionWorkbenchNotesPanel } from './SessionWorkbenchNotesPanel'
 import type { WorkbenchTab } from './session-workbench-types'
 
 const tabLabels: Record<WorkbenchTab, string> = {
@@ -46,6 +47,10 @@ type TradeLifecycleControlsProps = {
     trade_id: string
     exit_price: number
   }) => void
+  onCancelTrade: (input: {
+    trade_id: string
+    reason_md?: string
+  }) => void
   onOpenTrade: (input: {
     side: 'long' | 'short'
     quantity: number
@@ -65,6 +70,7 @@ const TradeLifecycleControls = ({
   busy,
   currentTrade,
   onAddToTrade,
+  onCancelTrade,
   onCloseTrade,
   onOpenTrade,
   onReduceTrade,
@@ -80,6 +86,7 @@ const TradeLifecycleControls = ({
   const [reduceQuantity, setReduceQuantity] = useState('1')
   const [reducePrice, setReducePrice] = useState(toInputValue(currentTrade?.entry_price))
   const [closePrice, setClosePrice] = useState(toInputValue(currentTrade?.take_profit ?? currentTrade?.entry_price))
+  const [cancelReason, setCancelReason] = useState('')
 
   useEffect(() => {
     if (currentTrade?.status === 'open') {
@@ -88,6 +95,7 @@ const TradeLifecycleControls = ({
       setReduceQuantity('1')
       setReducePrice(toInputValue(currentTrade.entry_price))
       setClosePrice(toInputValue(currentTrade.take_profit ?? currentTrade.entry_price))
+      setCancelReason('')
       return
     }
 
@@ -134,6 +142,7 @@ const TradeLifecycleControls = ({
   const canCloseTrade = activeTrade != null
     && !busy
     && closePriceValue != null
+  const canCancelTrade = activeTrade != null && !busy
 
   return (
     <div className="session-workbench__trade-controls">
@@ -361,6 +370,35 @@ const TradeLifecycleControls = ({
             >
               提交平仓
             </button>
+            <div className="form-grid" style={{ marginTop: 12 }}>
+              <label className="field field--full">
+                <span>取消原因</span>
+                <textarea
+                  className="inline-input session-workbench__trade-thesis"
+                  disabled={busy}
+                  onChange={(event) => setCancelReason(event.target.value)}
+                  placeholder="仅用于误建线程、setup 失效等取消场景。不会覆盖原始 trade facts。"
+                  rows={3}
+                  value={cancelReason}
+                />
+              </label>
+            </div>
+            <button
+              className="button is-ghost"
+              disabled={!canCancelTrade}
+              onClick={() => {
+                if (!activeTrade || !canCancelTrade) {
+                  return
+                }
+                onCancelTrade({
+                  trade_id: activeTrade.id,
+                  reason_md: cancelReason.trim() || undefined,
+                })
+              }}
+              type="button"
+            >
+              取消当前 Trade
+            </button>
           </article>
         </div>
       )}
@@ -389,8 +427,17 @@ type SessionWorkspaceColumnProps = {
     trade_id: string
     exit_price: number
   }) => void
+  onCancelTrade: (input: {
+    trade_id: string
+    reason_md?: string
+  }) => void
   onDeleteAiRecord: (aiRunId: string) => void
   onDeleteBlock: (block: ContentBlockRecord) => void
+  onComposerSuggestionAccept: (suggestion: ComposerSuggestion) => void
+  onCreateNoteBlock: (input?: {
+    title?: string
+    content_md?: string
+  }) => Promise<ContentBlockRecord | null>
   onOpenTrade: (input: {
     side: 'long' | 'short'
     quantity: number
@@ -414,6 +461,11 @@ type SessionWorkspaceColumnProps = {
   realtimeDraft: string
   realtimeViewBlock: ContentBlockRecord | null
   similarCases: SimilarCaseView[]
+  onUpdateNoteBlock: (input: {
+    block_id: string
+    title: string
+    content_md: string
+  }) => Promise<ContentBlockRecord | null>
 }
 
 export const SessionWorkspaceColumn = ({
@@ -430,8 +482,11 @@ export const SessionWorkspaceColumn = ({
   latestEvaluation,
   onAddToTrade,
   onCloseTrade,
+  onCancelTrade,
   onDeleteAiRecord,
   onDeleteBlock,
+  onComposerSuggestionAccept,
+  onCreateNoteBlock,
   onOpenTrade,
   onReduceTrade,
   onRestoreBlock,
@@ -444,6 +499,7 @@ export const SessionWorkspaceColumn = ({
   realtimeDraft,
   realtimeViewBlock,
   similarCases,
+  onUpdateNoteBlock,
 }: SessionWorkspaceColumnProps) => {
   const contextTrade = payload.current_context.trade_id
     ? payload.trades.find((trade) => trade.id === payload.current_context.trade_id) ?? null
@@ -451,6 +507,9 @@ export const SessionWorkspaceColumn = ({
   const realtimeContextLabel = contextTrade
     ? `当前上下文：挂载到 ${contextTrade.symbol} ${translateTradeSide(contextTrade.side)} 的 Trade 级笔记。`
     : `当前上下文：挂载到 ${payload.session.id} 的 Session 级笔记。`
+  const analysisRun = analysisCard
+    ? payload.ai_runs.find((run) => run.id === analysisCard.ai_run_id) ?? null
+    : null
 
   return (
     <section className="session-workbench__column session-workbench__column--workspace">
@@ -471,6 +530,7 @@ export const SessionWorkspaceColumn = ({
         {activeTab === 'view' ? (
           <div className="session-workbench__editor">
             <SessionWorkbenchComposerShell
+              onSuggestionAccept={onComposerSuggestionAccept}
               onRealtimeDraftChange={onRealtimeDraftChange}
               realtimeDraft={realtimeDraft}
               sessionPayload={payload}
@@ -527,12 +587,20 @@ export const SessionWorkspaceColumn = ({
                 <p className="workbench-text">暂无 active anchors。</p>
               )}
             </div>
+            <SessionWorkbenchNotesPanel
+              busy={busy}
+              onCreateNoteBlock={onCreateNoteBlock}
+              onDeleteBlock={onDeleteBlock}
+              onRestoreBlock={onRestoreBlock}
+              onUpdateNoteBlock={onUpdateNoteBlock}
+              payload={payload}
+            />
           </div>
         ) : null}
         {activeTab === 'ai' ? (
           analysisCard ? (
             <div className="session-workbench__editor">
-              <AnalysisCardView card={analysisCard} />
+              <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
               <div className="action-row">
                 <button
                   className="button is-secondary"
@@ -556,7 +624,7 @@ export const SessionWorkspaceColumn = ({
 
     <SectionCard title="分析总结" subtitle="结构化结论与执行位">
       {analysisCard ? (
-        <AnalysisCardView card={analysisCard} />
+        <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
       ) : (
         <p className="empty-state">还没有 AI 摘要。</p>
       )}
@@ -590,6 +658,7 @@ export const SessionWorkspaceColumn = ({
         busy={busy}
         currentTrade={currentTrade}
         onAddToTrade={onAddToTrade}
+        onCancelTrade={onCancelTrade}
         onCloseTrade={onCloseTrade}
         onOpenTrade={onOpenTrade}
         onReduceTrade={onReduceTrade}

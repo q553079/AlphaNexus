@@ -43,6 +43,11 @@ export const createImportedScreenshotForContext = (
     kind: ScreenshotRecord['kind']
     file_path: string
     asset_url: string
+    raw_file_path?: string
+    raw_asset_url?: string
+    annotated_file_path?: string | null
+    annotated_asset_url?: string | null
+    annotations_json_path?: string | null
     caption: string | null
     width: number
     height: number
@@ -54,9 +59,29 @@ export const createImportedScreenshotForContext = (
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO screenshots (id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url, caption, width, height, deleted_at)
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-    `).run(screenshotId, createdAt, input.session_id, eventId, input.kind, input.file_path, input.asset_url, input.caption, input.width, input.height)
+      INSERT INTO screenshots (
+        id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url,
+        raw_file_path, raw_asset_url, annotated_file_path, annotated_asset_url, annotations_json_path,
+        caption, width, height, deleted_at
+      )
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `).run(
+      screenshotId,
+      createdAt,
+      input.session_id,
+      eventId,
+      input.kind,
+      input.file_path,
+      input.asset_url,
+      input.raw_file_path ?? input.file_path,
+      input.raw_asset_url ?? input.asset_url,
+      input.annotated_file_path ?? null,
+      input.annotated_asset_url ?? null,
+      input.annotations_json_path ?? null,
+      input.caption,
+      input.width,
+      input.height,
+    )
 
     db.prepare(`
       INSERT INTO events (id, schema_version, created_at, session_id, trade_id, event_type, title, summary, author_kind, occurred_at, content_block_ids_json, screenshot_id, ai_run_id, deleted_at)
@@ -87,6 +112,11 @@ export const createCapturedScreenshotArtifactsForContext = (
     kind: ScreenshotRecord['kind']
     file_path: string
     asset_url: string
+    raw_file_path?: string
+    raw_asset_url?: string
+    annotated_file_path?: string | null
+    annotated_asset_url?: string | null
+    annotations_json_path?: string | null
     caption: string | null
     width: number
     height: number
@@ -103,9 +133,29 @@ export const createCapturedScreenshotArtifactsForContext = (
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO screenshots (id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url, caption, width, height, deleted_at)
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-    `).run(screenshotId, createdAt, input.session_id, eventId, input.kind, input.file_path, input.asset_url, input.caption, input.width, input.height)
+      INSERT INTO screenshots (
+        id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url,
+        raw_file_path, raw_asset_url, annotated_file_path, annotated_asset_url, annotations_json_path,
+        caption, width, height, deleted_at
+      )
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `).run(
+      screenshotId,
+      createdAt,
+      input.session_id,
+      eventId,
+      input.kind,
+      input.file_path,
+      input.asset_url,
+      input.raw_file_path ?? input.file_path,
+      input.raw_asset_url ?? input.asset_url,
+      input.annotated_file_path ?? null,
+      input.annotated_asset_url ?? null,
+      input.annotations_json_path ?? null,
+      input.caption,
+      input.width,
+      input.height,
+    )
 
     db.prepare(`
       INSERT INTO events (id, schema_version, created_at, session_id, trade_id, event_type, title, summary, author_kind, occurred_at, content_block_ids_json, screenshot_id, ai_run_id, deleted_at)

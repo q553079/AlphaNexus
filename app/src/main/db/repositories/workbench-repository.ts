@@ -22,11 +22,19 @@ export {
   upsertRealtimeViewBlockForCurrentContext,
 } from '@main/db/repositories/workbench-context-mutations'
 export {
+  createWorkbenchNoteBlock,
+  insertStandaloneContentEvent,
+  syncEventAfterContentBlockMutation,
+  updateWorkbenchNoteBlock,
+} from '@main/db/repositories/workbench-note-mutations'
+export {
   addToTrade,
+  cancelTrade,
   closeTrade,
   createImportedScreenshot,
   createAiAnalysisArtifacts,
   moveContentBlock,
+  moveScreenshot,
   openTrade,
   replaceScreenshotAnnotations,
   reduceTrade,
@@ -34,6 +42,7 @@ export {
   setAnnotationDeletedState,
   setContentBlockDeletedState,
   setScreenshotDeletedState,
+  updateAnnotationMetadata,
   upsertSessionRealtimeViewBlock,
 } from '@main/db/repositories/workbench-mutations'
 export {

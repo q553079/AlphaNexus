@@ -26,6 +26,7 @@ const eventTypeLabels = {
   trade_add: '加仓',
   trade_reduce: '减仓',
   trade_close: '平仓',
+  trade_cancel: '取消',
 } as const
 
 const groupTradeScreenshots = (
@@ -87,7 +88,9 @@ const buildMockTradeReviewDraftMarkdown = (
     : ['- 暂无执行事件。']
   const resultLine = trade.status === 'closed'
     ? `- 当前结果：已平仓，平仓价 ${trade.exit_price ?? '待补充'}，PnL ${trade.pnl_r ?? '待补充'}R。`
-    : '- 当前结果：交易尚未闭环，结果待确认。'
+    : trade.status === 'canceled'
+      ? '- 当前结果：交易已取消，不计入正常离场结果。'
+      : '- 当前结果：交易尚未闭环，结果待确认。'
   const exitLine = exitScreenshots.length > 0
     ? `- Exit 图：已记录 ${exitScreenshots.length} 张。`
     : '- Exit 图：尚未补齐。'
@@ -150,6 +153,8 @@ export const buildMockTradeThread = (payload: SessionWorkbenchPayload, tradeId: 
   const analysisCards = payload.analysis_cards
     .filter((card) => card.trade_id === tradeId && !card.deleted_at)
     .sort((left, right) => left.created_at.localeCompare(right.created_at))
+  const aiPromptKindByRunId = new Map(payload.ai_runs.map((run) => [run.id, run.prompt_kind]))
+  const marketAnalysisCards = analysisCards.filter((card) => (aiPromptKindByRunId.get(card.ai_run_id) ?? 'market-analysis') === 'market-analysis')
   const screenshots = payload.screenshots.filter((screenshot) => screenshot.event_id && relatedEventIds.has(screenshot.event_id))
   const contentBlocks = payload.content_blocks.filter((block) =>
     !block.soft_deleted
@@ -159,7 +164,7 @@ export const buildMockTradeThread = (payload: SessionWorkbenchPayload, tradeId: 
       || (block.event_id && relatedEventIds.has(block.event_id))
     ))
   const executionEvents = relatedEvents.filter((event) => event.event_type.startsWith('trade_'))
-  const latestAnalysisCard = analysisCards[analysisCards.length - 1] ?? null
+  const latestAnalysisCard = marketAnalysisCards[marketAnalysisCards.length - 1] ?? null
   const screenshotGroups = groupTradeScreenshots(trade, relatedEvents, screenshots)
   const reviewDraftBlock = [...contentBlocks]
     .reverse()
@@ -188,7 +193,7 @@ export const buildMockTradeThread = (payload: SessionWorkbenchPayload, tradeId: 
     setup_screenshot: selectPreferredSetupScreenshot(screenshotGroups.setup_screenshots),
     content_blocks: contentBlocks,
     original_plan_blocks: originalPlanBlocks,
-    linked_ai_cards: analysisCards,
+    linked_ai_cards: marketAnalysisCards,
     execution_events: executionEvents,
     review_blocks: reviewBlocks,
     review_draft_block: reviewDraftBlock,
