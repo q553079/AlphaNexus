@@ -12,6 +12,7 @@ import {
   getSessionWorkbench,
   getTradeDetail,
   listWorkbenchTargetOptions,
+  reorderWorkbenchNoteBlocks,
   moveScreenshotToTarget,
   openTradeForSession,
   retargetContentBlock,
@@ -66,6 +67,7 @@ import {
   ListTargetOptionsInputSchema,
   ListMemoryProposalsInputSchema,
   MoveContentBlockInputSchema,
+  ReorderContentBlocksInputSchema,
   MoveScreenshotInputSchema,
   OpenTradeInputSchema,
   PeriodReviewPayloadSchema,
@@ -328,6 +330,11 @@ export const registerWorkbenchIpc = ({ paths }: AppContext) => {
 
   ipcMain.handle('workbench:move-content-block', async(_event, input) => {
     return ContentBlockMoveResultSchema.parse(await retargetContentBlock(paths, MoveContentBlockInputSchema.parse(input)))
+  })
+
+  ipcMain.handle('workbench:reorder-content-blocks', async(_event, input) => {
+    const result = await reorderWorkbenchNoteBlocks(paths, ReorderContentBlocksInputSchema.parse(input))
+    return ContentBlockMutationResultSchema.parse({ block: result })
   })
 
   ipcMain.handle('workbench:move-screenshot', async(_event, input) => {

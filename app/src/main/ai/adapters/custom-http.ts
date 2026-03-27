@@ -3,13 +3,6 @@ import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contra
 
 const DEFAULT_MODEL = 'openai-compatible-model'
 
-const SYSTEM_PROMPT = [
-  'You are AlphaNexus, a professional trading review assistant.',
-  'Use only the supplied session context and do not invent chart facts.',
-  'Write user-facing strings in Simplified Chinese unless symbols or standard trading terms should remain unchanged.',
-  'Return only one valid JSON object.',
-].join(' ')
-
 const JSON_CONTRACT = [
   'Return a JSON object with exactly these keys:',
   '{',
@@ -103,6 +96,13 @@ const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
     : AiAnalysisDraftSchema.parse(payload)
 }
 
+const buildSystemPrompt = (input: AiAdapterRunInput) =>
+  [
+    input.promptTemplate.base_system_prompt,
+    input.promptTemplate.runtime_notes.trim(),
+    'Return only one valid JSON object.',
+  ].filter((section) => section.length > 0).join('\n\n')
+
 const runCustomHttpAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
   const {
     config,
@@ -126,7 +126,7 @@ const runCustomHttpAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapter
     body: JSON.stringify({
       model: config.model || DEFAULT_MODEL,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: buildSystemPrompt(input) },
         {
           role: 'user',
           content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review' ? TRADE_REVIEW_JSON_CONTRACT : JSON_CONTRACT}`,

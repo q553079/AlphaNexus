@@ -514,6 +514,29 @@
 - prompt 模板管理
 - 相似案例召回
 
+#### E. 阶段五合同与存储增量说明
+
+本阶段允许增加与稳定性、体验相关的增量合同，但要保持可回滚、可降级：
+
+- `capture-preferences.json`
+  - 位置：本地 `dataDir`
+  - 用途：保存截图快捷键与多屏默认策略
+  - 兼容策略：缺失文件时回退默认值，不阻塞截图主链
+- `ai-prompt-templates.json`
+  - 位置：本地 `dataDir`
+  - 用途：保存 prompt template 的 runtime notes 覆盖项
+  - 兼容策略：缺失文件时回退内置模板，不影响 AI 主调用
+- 阶段五新增 IPC 可以是加法扩展，例如：
+  - `capture:list-displays`
+  - `capture:get-preferences`
+  - `capture:save-preferences`
+  - `capture:paste-clipboard-image`
+  - `ai:list-prompt-templates`
+  - `ai:save-prompt-template`
+  - `workbench:reorder-content-blocks`
+- 如果只是上述本地 JSON 配置和 IPC 加法扩展，本阶段不需要 SQL migration
+- 若未来提升这些配置对象的结构，必须保留 `schema_version` 与默认回退路径，不允许静默破坏旧本地数据
+
 ### 8.3 阶段验收标准
 
 1. 日常使用 2 小时以上无明显卡顿

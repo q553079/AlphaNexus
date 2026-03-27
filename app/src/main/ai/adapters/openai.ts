@@ -6,14 +6,6 @@ import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contra
 const DEFAULT_MODEL = 'gpt-5.4-mini'
 const RESPONSES_ENDPOINT = 'https://api.openai.com/v1/responses'
 
-const SYSTEM_PROMPT = [
-  'You are AlphaNexus, a professional trading analysis assistant.',
-  'Use only the supplied session context, screenshot, and user notes.',
-  'Do not invent chart facts, fills, or event history that are not present in the input.',
-  'Human notes and trade facts remain authoritative; your output is assistive analysis only.',
-  'Write all user-facing strings in Simplified Chinese unless symbols, numbers, or standard trading terms should remain unchanged.',
-].join(' ')
-
 const ANALYSIS_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -237,6 +229,12 @@ const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
     : AiAnalysisDraftSchema.parse(payload)
 }
 
+const buildSystemPrompt = (input: AiAdapterRunInput) =>
+  [
+    input.promptTemplate.base_system_prompt,
+    input.promptTemplate.runtime_notes.trim(),
+  ].filter((section) => section.length > 0).join('\n\n')
+
 const runOpenAiAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
   if (!input.providerSecret.api_key) {
     throw new Error('本地环境中缺少 OPENAI_API_KEY。')
@@ -257,7 +255,7 @@ const runOpenAiAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunR
           content: [
             {
               type: 'input_text',
-              text: SYSTEM_PROMPT,
+              text: buildSystemPrompt(input),
             },
           ],
         },

@@ -38,6 +38,22 @@ export const TradeReviewDraftSchema = z.object({
   deep_analysis_md: z.string().min(1),
 })
 
+export const PromptTemplateKindSchema = z.enum(['market-analysis', 'trade-review', 'period-review'])
+
+export const PromptTemplateSchema = z.object({
+  schema_version: z.literal(1).default(1),
+  template_id: PromptTemplateKindSchema,
+  label: z.string().min(1),
+  base_system_prompt: z.string().min(1),
+  runtime_notes: z.string(),
+  output_contract_summary: z.string().min(1),
+})
+
+export const SavePromptTemplateInputSchema = z.object({
+  template_id: PromptTemplateKindSchema,
+  runtime_notes: z.string().max(8_000),
+})
+
 export const RunAiAnalysisInputSchema = z.object({
   session_id: EntityIdSchema,
   screenshot_id: EntityIdSchema.nullable().optional(),
@@ -78,6 +94,9 @@ export const AiRunExecutionResultSchema = z.object({
 export type AiProviderConfig = z.infer<typeof AiProviderConfigSchema>
 export type AiAnalysisDraft = z.infer<typeof AiAnalysisDraftSchema>
 export type TradeReviewDraft = z.infer<typeof TradeReviewDraftSchema>
+export type PromptTemplateKind = z.infer<typeof PromptTemplateKindSchema>
+export type PromptTemplate = z.infer<typeof PromptTemplateSchema>
+export type SavePromptTemplateInput = z.infer<typeof SavePromptTemplateInputSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
 export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>

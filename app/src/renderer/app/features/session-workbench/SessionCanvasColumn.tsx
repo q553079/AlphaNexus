@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SectionCard } from '@app/components/SectionCard'
+import { LazyImage } from '@app/components/LazyImage'
 import { AnnotationCanvas } from '@app/features/annotation/AnnotationCanvas'
 import { AnnotationMetadataEditor } from '@app/features/annotation/AnnotationMetadataEditor'
 import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
@@ -210,7 +211,11 @@ export const SessionCanvasColumn = ({
                     </div>
                   </div>
                   <div className="trade-thread-media__hero">
-                    <img alt={item.screenshot.caption ?? item.title} src={item.screenshot.annotated_asset_url ?? item.screenshot.raw_asset_url ?? item.screenshot.asset_url} />
+                    <LazyImage
+                      alt={item.screenshot.caption ?? item.title}
+                      aspectRatio="16 / 9"
+                      src={item.screenshot.annotated_asset_url ?? item.screenshot.raw_asset_url ?? item.screenshot.asset_url}
+                    />
                   </div>
                 </article>
               ))}

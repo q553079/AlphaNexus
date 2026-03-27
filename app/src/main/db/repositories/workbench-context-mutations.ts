@@ -202,20 +202,27 @@ export const createCapturedScreenshotArtifactsForContext = (
 
     for (const annotation of input.annotations ?? []) {
       db.prepare(`
-        INSERT INTO annotations (id, schema_version, created_at, screenshot_id, shape, label, color, x1, y1, x2, y2, text, stroke_width, deleted_at)
-        VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        INSERT INTO annotations (
+          id, schema_version, created_at, screenshot_id, shape, label, title, semantic_type, color,
+          x1, y1, x2, y2, text, note_md, add_to_memory, stroke_width, deleted_at
+        )
+        VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `).run(
         createId('annotation'),
         createdAt,
         screenshotId,
         annotation.shape,
         annotation.label,
+        annotation.title,
+        annotation.semantic_type,
         annotation.color,
         annotation.x1,
         annotation.y1,
         annotation.x2,
         annotation.y2,
         annotation.text,
+        annotation.note_md,
+        annotation.add_to_memory ? 1 : 0,
         annotation.stroke_width,
       )
     }

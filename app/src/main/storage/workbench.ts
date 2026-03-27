@@ -10,6 +10,7 @@ import {
   ensureCurrentContext,
   getCurrentContext,
   listCurrentTargetOptions,
+  reorderWorkbenchContentBlocks,
   moveContentBlock,
   moveScreenshot,
   openTrade,
@@ -33,6 +34,7 @@ import type {
   GetCurrentContextInput,
   ListTargetOptionsInput,
   MoveContentBlockInput,
+  ReorderContentBlocksInput,
   MoveScreenshotInput,
   SaveSessionRealtimeViewInput,
   SetCurrentContextInput,
@@ -161,6 +163,11 @@ export const createWorkbenchNote = async(paths: LocalFirstPaths, input: Paramete
 export const updateWorkbenchNote = async(paths: LocalFirstPaths, input: Parameters<typeof updateWorkbenchNoteBlock>[1]) => {
   const db = await getDatabase(paths)
   return updateWorkbenchNoteBlock(db, input)
+}
+
+export const reorderWorkbenchNotes = async(paths: LocalFirstPaths, input: ReorderContentBlocksInput) => {
+  const db = await getDatabase(paths)
+  return reorderWorkbenchContentBlocks(db, input)
 }
 
 export const moveWorkbenchContentBlock = async(paths: LocalFirstPaths, input: MoveContentBlockInput) => {

@@ -145,12 +145,21 @@ export const SessionWorkbenchPage = () => {
           onOpenTrade={(input) => {
             void workbench.handleOpenTrade(input)
           }}
+          onPasteClipboardImage={() => {
+            void workbench.handlePasteClipboardImage()
+          }}
+          onReorderNoteBlocks={(input) => {
+            void workbench.handleReorderNoteBlocks(input)
+          }}
           onReduceTrade={(input) => {
             void workbench.handleReduceTrade(input)
           }}
           onRealtimeDraftChange={workbench.setRealtimeDraft}
           onRestoreAiRecord={(aiRunId) => {
             void workbench.handleRestoreAiRecord(aiRunId)
+          }}
+          onRunAnalysisAcrossProviders={() => {
+            void workbench.handleRunAnalysisAcrossProviders()
           }}
           onRestoreBlock={(block) => {
             void workbench.handleRestoreBlock(block)
@@ -164,6 +173,7 @@ export const SessionWorkbenchPage = () => {
           payload={workbench.payload}
           realtimeDraft={workbench.realtimeDraft}
           realtimeViewBlock={workbench.realtimeViewBlock}
+          selectedScreenshot={workbench.selectedScreenshot}
           similarCases={workbench.similarCases}
         />
       </div>

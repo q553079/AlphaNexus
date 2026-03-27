@@ -1,6 +1,6 @@
 import { copyFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { NativeImage, OpenDialogOptions, Rectangle } from 'electron'
+import type { Display, NativeImage, OpenDialogOptions, Rectangle } from 'electron'
 import type { AppEnvironment } from '@main/app-shell/env'
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getDatabase } from '@main/db/connection'
@@ -19,6 +19,11 @@ import {
   setPendingSnipCapture,
 } from '@main/capture/capture-overlay-state'
 import {
+  readCapturePreferences,
+  writeCapturePreferences,
+} from '@main/capture/capture-preferences-storage'
+import { reregisterCaptureShortcuts } from '@main/capture/capture-shortcuts'
+import {
   buildCaptureAssetPath,
   buildPendingTargetMetadata,
   defaultCaptureSaveDependencies as defaultCaptureSaveFlowDependencies,
@@ -32,16 +37,22 @@ import {
 } from '@main/capture/capture-save-flow'
 import {
   CaptureCommandResultSchema,
+  CaptureDisplaySchema,
+  CapturePreferencesSchema,
   CaptureResultSchema,
   CaptureSessionContextInputSchema,
   ImportScreenshotInputSchema,
   OpenSnipCaptureInputSchema,
   PendingSnipCaptureSchema,
+  PasteClipboardImageInputSchema,
   SavePendingSnipInputSchema,
   SavePendingSnipResultSchema,
+  SaveCapturePreferencesInputSchema,
   SaveScreenshotAnnotationsInputSchema,
   SnipCaptureSelectionInputSchema,
+  type CaptureDisplay,
   type CaptureResult,
+  type CapturePreferences,
   type SavePendingSnipResult,
 } from '@shared/capture/contracts'
 
@@ -178,13 +189,36 @@ const defaultCaptureSaveDependencies: CaptureSaveDependencies = {
   notifySaved: notifyCaptureSaved,
 }
 
-const getDisplayCaptureSource = async() => {
+const toCaptureDisplay = (
+  display: Display,
+  primaryDisplayId: number,
+): CaptureDisplay => CaptureDisplaySchema.parse({
+  id: `${display.id}`,
+  label: display.label || `Display ${display.id}`,
+  is_primary: display.id === primaryDisplayId,
+  scale_factor: display.scaleFactor,
+  bounds: display.bounds,
+})
+
+const resolveDisplayForCapture = async(
+  paths: LocalFirstPaths,
+  requestedDisplayId?: string,
+) => {
   const { desktopCapturer, screen } = await import('electron')
   const { getMainWindow } = await import('@main/app-shell/create-main-window')
+  const displays = screen.getAllDisplays()
+  const preferences = await readCapturePreferences(paths)
   const mainWindow = getMainWindow()
-  const display = mainWindow
+  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const mainWindowDisplay = mainWindow
     ? screen.getDisplayMatching(mainWindow.getBounds())
     : screen.getPrimaryDisplay()
+  const defaultDisplay = preferences.display_strategy === 'main-window-display'
+    ? mainWindowDisplay
+    : cursorDisplay
+  const display = requestedDisplayId
+    ? displays.find((item) => `${item.id}` === requestedDisplayId) ?? defaultDisplay
+    : defaultDisplay
   const thumbnailSize = {
     width: Math.max(1, Math.floor(display.bounds.width * display.scaleFactor)),
     height: Math.max(1, Math.floor(display.bounds.height * display.scaleFactor)),
@@ -213,14 +247,80 @@ const getDisplayCaptureSource = async() => {
   }
 
   return {
+    display,
     bounds: display.bounds,
     pending: {
+      display_id: `${display.id}`,
       display_label: display.label || `Display ${display.id}`,
       source_width: width,
       source_height: height,
       source_data_url: thumbnail.toDataURL(),
     },
   }
+}
+
+const buildClipboardPendingCapture = async(
+  paths: LocalFirstPaths,
+  input: {
+    session_id: string
+    contract_id?: string
+    period_id?: string
+    trade_id?: string | null
+    source_view?: 'launcher' | 'session-workbench' | 'trade-detail' | 'period-review' | 'capture-overlay'
+    kind: 'chart' | 'execution' | 'exit'
+  },
+  image: NativeImage,
+) => {
+  const currentContext = await resolveCaptureContext(paths, {
+    session_id: input.session_id,
+    contract_id: input.contract_id,
+    period_id: input.period_id,
+    trade_id: hasOwn(input, 'trade_id') ? input.trade_id ?? null : undefined,
+    source_view: input.source_view ?? 'session-workbench',
+    kind: input.kind,
+  })
+  const targetMetadata = await buildPendingTargetMetadata(paths, currentContext)
+  const { width, height } = image.getSize()
+
+  return PendingSnipCaptureSchema.parse({
+    session_id: currentContext.session_id,
+    contract_id: currentContext.contract_id,
+    period_id: currentContext.period_id,
+    trade_id: currentContext.trade_id,
+    display_id: 'clipboard',
+    source_view: currentContext.source_view,
+    kind: currentContext.capture_kind,
+    display_label: 'Clipboard Image',
+    target_kind: targetMetadata.target_kind,
+    target_label: targetMetadata.target_label,
+    target_subtitle: targetMetadata.target_subtitle,
+    session_title: targetMetadata.session_title,
+    contract_symbol: targetMetadata.contract_symbol,
+    open_trade_id: targetMetadata.open_trade_id,
+    open_trade_label: targetMetadata.open_trade_label,
+    source_width: width,
+    source_height: height,
+    source_data_url: image.toDataURL(),
+  })
+}
+
+export const listCaptureDisplays = async() => {
+  const { screen } = await import('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  return screen.getAllDisplays().map((display) => toCaptureDisplay(display, primaryDisplay.id))
+}
+
+export const getCapturePreferences = async(paths: LocalFirstPaths): Promise<CapturePreferences> =>
+  CapturePreferencesSchema.parse(await readCapturePreferences(paths))
+
+export const saveCapturePreferences = async(
+  paths: LocalFirstPaths,
+  rawInput: unknown,
+): Promise<CapturePreferences> => {
+  const input = SaveCapturePreferencesInputSchema.parse(rawInput)
+  const preferences = await writeCapturePreferences(paths, input)
+  await reregisterCaptureShortcuts(paths)
+  return CapturePreferencesSchema.parse(preferences)
 }
 
 export const setCaptureSessionContext = async(rawInput: unknown) => {
@@ -248,7 +348,7 @@ export const openSnipCapture = async(paths: LocalFirstPaths, rawInput?: unknown)
   } : {
     source_view: 'capture-overlay',
   })
-  const baseCapture = await getDisplayCaptureSource()
+  const baseCapture = await resolveDisplayForCapture(paths, input?.display_id)
   const targetMetadata = await buildPendingTargetMetadata(paths, currentContext)
 
   setPendingSnipCapture(PendingSnipCaptureSchema.parse({
@@ -355,6 +455,47 @@ export const cancelPendingSnip = async() => {
   const { closeCaptureOverlayWindow } = await import('@main/capture/capture-overlay-window')
   closeCaptureOverlayWindow()
   return CaptureCommandResultSchema.parse({ ok: true })
+}
+
+export const pasteClipboardImage = async(
+  paths: LocalFirstPaths,
+  rawInput: unknown,
+): Promise<SavePendingSnipResult> => {
+  const input = PasteClipboardImageInputSchema.parse(rawInput)
+  const { clipboard } = await import('electron')
+  const clipboardImage = clipboard.readImage()
+  if (clipboardImage.isEmpty()) {
+    throw new Error('当前剪贴板里没有可导入的图片。')
+  }
+  const image = normalizeCaptureHeight(clipboardImage)
+
+  const pendingCapture = await buildClipboardPendingCapture(paths, {
+    session_id: input.session_id,
+    contract_id: input.contract_id,
+    period_id: input.period_id,
+    trade_id: input.trade_id ?? null,
+    source_view: input.source_view ?? 'session-workbench',
+    kind: input.kind,
+  }, image)
+  const saveTarget = await resolvePendingSaveTarget(paths, pendingCapture, {
+    trade_id: input.trade_id ?? null,
+    target_context: {
+      session_id: input.session_id,
+      trade_id: input.trade_id ?? null,
+      source_view: input.source_view ?? 'session-workbench',
+      kind: input.kind,
+    },
+    kind: input.kind,
+  })
+  const result = await persistSnipSelection(
+    paths,
+    pendingCapture,
+    saveTarget,
+    image,
+  )
+
+  await notifyCaptureSaved(result)
+  return SavePendingSnipResultSchema.parse(result)
 }
 
 export const importScreenshotIntoSession = async(paths: LocalFirstPaths, rawInput: unknown): Promise<CaptureResult> => {

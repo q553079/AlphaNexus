@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AnalysisCardView } from '@app/components/AnalysisCardView'
 import { SectionCard } from '@app/components/SectionCard'
 import { TradeSnapshotCard } from '@app/components/TradeSnapshotCard'
+import { AiComparisonPanel } from '@app/features/session-workbench/AiComparisonPanel'
 import { ActiveAnchorsPanel } from '@app/features/anchors'
 import type { ComposerSuggestion } from '@app/features/composer/types'
 import type { MarketAnchorStatus, MarketAnchorView } from '@app/features/anchors'
-import { SessionWorkbenchComposerShell } from '@app/features/composer'
 import { GroundingHitsPanel } from '@app/features/grounding'
 import type { GroundingHitView } from '@app/features/grounding'
 import {
@@ -14,11 +14,11 @@ import {
 } from '@app/features/suggestions'
 import type { AnchorReviewSuggestionView, SimilarCaseView } from '@app/features/suggestions'
 import type { AnalysisCardRecord } from '@shared/contracts/analysis'
-import type { ContentBlockRecord } from '@shared/contracts/content'
+import type { ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
 import type { EvaluationRecord, TradeRecord } from '@shared/contracts/trade'
 import type { AiRecordChain, SessionWorkbenchPayload } from '@shared/contracts/workbench'
-import { translateTradeSide } from '@app/ui/display-text'
-import { SessionWorkbenchNotesPanel } from './SessionWorkbenchNotesPanel'
+import { buildAiComparisonViewModel } from './modules/session-ai-compare'
+import { SessionRealtimeViewPanel } from './SessionRealtimeViewPanel'
 import type { WorkbenchTab } from './session-workbench-types'
 
 const tabLabels: Record<WorkbenchTab, string> = {
@@ -451,15 +451,24 @@ type SessionWorkspaceColumnProps = {
     quantity: number
     price: number
   }) => void
+  onPasteClipboardImage: () => void
+  onReorderNoteBlocks: (input: {
+    session_id: string
+    context_type: 'session' | 'trade'
+    context_id: string
+    ordered_block_ids: string[]
+  }) => void
   onRestoreBlock: (block: ContentBlockRecord) => void
   onRealtimeDraftChange: (value: string) => void
   onRestoreAiRecord: (aiRunId: string) => void
+  onRunAnalysisAcrossProviders: () => void
   onSaveRealtimeView: () => void
   onSetAnchorStatus: (anchorId: string, status: MarketAnchorStatus) => void
   onTabChange: (tab: WorkbenchTab) => void
   payload: SessionWorkbenchPayload
   realtimeDraft: string
   realtimeViewBlock: ContentBlockRecord | null
+  selectedScreenshot: ScreenshotRecord | null
   similarCases: SimilarCaseView[]
   onUpdateNoteBlock: (input: {
     block_id: string
@@ -488,28 +497,30 @@ export const SessionWorkspaceColumn = ({
   onComposerSuggestionAccept,
   onCreateNoteBlock,
   onOpenTrade,
+  onPasteClipboardImage,
+  onReorderNoteBlocks,
   onReduceTrade,
   onRestoreBlock,
   onRealtimeDraftChange,
   onRestoreAiRecord,
+  onRunAnalysisAcrossProviders,
   onSaveRealtimeView,
   onSetAnchorStatus,
   onTabChange,
   payload,
   realtimeDraft,
   realtimeViewBlock,
+  selectedScreenshot,
   similarCases,
   onUpdateNoteBlock,
 }: SessionWorkspaceColumnProps) => {
-  const contextTrade = payload.current_context.trade_id
-    ? payload.trades.find((trade) => trade.id === payload.current_context.trade_id) ?? null
-    : null
-  const realtimeContextLabel = contextTrade
-    ? `当前上下文：挂载到 ${contextTrade.symbol} ${translateTradeSide(contextTrade.side)} 的 Trade 级笔记。`
-    : `当前上下文：挂载到 ${payload.session.id} 的 Session 级笔记。`
   const analysisRun = analysisCard
     ? payload.ai_runs.find((run) => run.id === analysisCard.ai_run_id) ?? null
     : null
+  const aiComparison = useMemo(() => buildAiComparisonViewModel(payload, {
+    screenshot_id: selectedScreenshot?.id ?? null,
+    trade_id: payload.current_context.trade_id ?? null,
+  }), [payload, selectedScreenshot?.id])
 
   return (
     <section className="session-workbench__column session-workbench__column--workspace">
@@ -528,93 +539,55 @@ export const SessionWorkspaceColumn = ({
       </div>
       <div className="session-workbench__tab-content">
         {activeTab === 'view' ? (
-          <div className="session-workbench__editor">
-            <SessionWorkbenchComposerShell
-              onSuggestionAccept={onComposerSuggestionAccept}
-              onRealtimeDraftChange={onRealtimeDraftChange}
-              realtimeDraft={realtimeDraft}
-              sessionPayload={payload}
-              suggestions={composerSuggestions}
-            />
-            <textarea
-              className="inline-input session-workbench__textarea"
-              onChange={(event) => onRealtimeDraftChange(event.target.value)}
-              placeholder="把你的实时市场看法写在这里。这条笔记会本地保存，并随 Session 一起导出。"
-              rows={10}
-              value={realtimeDraft}
-            />
-            <div className="action-row">
-              <button
-                className="button is-primary"
-                disabled={busy}
-                onClick={onSaveRealtimeView}
-                type="button"
-              >
-                保存我的看法
-              </button>
-              {realtimeViewBlock && !realtimeViewBlock.soft_deleted ? (
-                <button
-                  className="button is-secondary"
-                  disabled={busy}
-                  onClick={() => onDeleteBlock(realtimeViewBlock)}
-                  type="button"
-                >
-                  删除当前笔记
-                </button>
-              ) : realtimeViewBlock ? (
-                <button
-                  className="button is-secondary"
-                  disabled={busy}
-                  onClick={() => onRestoreBlock(realtimeViewBlock)}
-                  type="button"
-                >
-                  恢复当前笔记
-                </button>
-              ) : null}
-            </div>
-            <p className="session-workbench__editor-hint">
-              {realtimeContextLabel}
-            </p>
-            <div className="session-workbench__anchor-context">
-              <p className="session-workbench__deleted-label">Active Anchor Context</p>
-              {activeAnchors.length > 0 ? (
-                <div className="composer-shell__anchors">
-                  {activeAnchors.map((anchor) => (
-                    <span className="status-pill" key={anchor.id}>{anchor.title}</span>
-                  ))}
-                </div>
-              ) : (
-                <p className="workbench-text">暂无 active anchors。</p>
-              )}
-            </div>
-            <SessionWorkbenchNotesPanel
-              busy={busy}
-              onCreateNoteBlock={onCreateNoteBlock}
-              onDeleteBlock={onDeleteBlock}
-              onRestoreBlock={onRestoreBlock}
-              onUpdateNoteBlock={onUpdateNoteBlock}
-              payload={payload}
-            />
-          </div>
+          <SessionRealtimeViewPanel
+            activeAnchors={activeAnchors}
+            busy={busy}
+            onComposerSuggestionAccept={onComposerSuggestionAccept}
+            onCreateNoteBlock={onCreateNoteBlock}
+            onDeleteBlock={onDeleteBlock}
+            onPasteClipboardImage={async() => {
+              onPasteClipboardImage()
+            }}
+            onRealtimeDraftChange={onRealtimeDraftChange}
+            onReorderNoteBlocks={async(input) => {
+              onReorderNoteBlocks(input)
+            }}
+            onRestoreBlock={onRestoreBlock}
+            onSaveRealtimeView={onSaveRealtimeView}
+            onUpdateNoteBlock={onUpdateNoteBlock}
+            payload={payload}
+            realtimeDraft={realtimeDraft}
+            realtimeViewBlock={realtimeViewBlock}
+            suggestions={composerSuggestions}
+          />
         ) : null}
         {activeTab === 'ai' ? (
-          analysisCard ? (
-            <div className="session-workbench__editor">
-              <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
-              <div className="action-row">
-                <button
-                  className="button is-secondary"
-                  disabled={busy}
-                  onClick={() => onDeleteAiRecord(analysisCard.ai_run_id)}
-                  type="button"
-                >
-                  删除当前 AI 记录
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="empty-state">AI 分析生成后会显示在这里。</p>
-          )
+          <div className="session-workbench__editor">
+            {analysisCard ? (
+              <>
+                <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
+                <div className="action-row">
+                  <button
+                    className="button is-secondary"
+                    disabled={busy}
+                    onClick={() => onDeleteAiRecord(analysisCard.ai_run_id)}
+                    type="button"
+                  >
+                    删除当前 AI 记录
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="empty-state">AI 分析生成后会显示在这里。</p>
+            )}
+            <AiComparisonPanel
+              busy={busy}
+              onRunCompare={() => {
+                onRunAnalysisAcrossProviders()
+              }}
+              viewModel={aiComparison}
+            />
+          </div>
         ) : null}
         {activeTab === 'plan' ? (
           <p className="workbench-text">{payload.panels.trade_plan}</p>

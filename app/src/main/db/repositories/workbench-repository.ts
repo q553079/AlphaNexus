@@ -24,6 +24,7 @@ export {
 export {
   createWorkbenchNoteBlock,
   insertStandaloneContentEvent,
+  reorderWorkbenchContentBlocks,
   syncEventAfterContentBlockMutation,
   updateWorkbenchNoteBlock,
 } from '@main/db/repositories/workbench-note-mutations'

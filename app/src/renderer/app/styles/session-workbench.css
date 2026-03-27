@@ -126,6 +126,24 @@
   padding-right: 4px;
 }
 
+.session-workbench__event-virtual-list {
+  position: relative;
+  contain: content;
+  overscroll-behavior: contain;
+}
+
+.session-workbench__event-virtual-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.session-workbench__event-virtual-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding-bottom: 10px;
+}
+
 .session-workbench__column--events .section-card__body {
   padding-right: 10px;
 }
@@ -227,10 +245,58 @@
   gap: 10px;
 }
 
+.session-workbench__notes-panel,
+.session-workbench__selection-editor,
+.session-workbench__suggestion-layer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-workbench__notes-panel {
+  padding: 10px;
+  border-radius: var(--radius-md);
+  border: 1px dashed rgba(53, 92, 90, 0.24);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.session-workbench__selection-editor {
+  position: relative;
+}
+
 .session-workbench__textarea {
   min-height: 180px;
   resize: vertical;
   line-height: 1.5;
+  padding-top: 52px;
+}
+
+.session-workbench__editor-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(53, 62, 59, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.session-workbench__editor-status.is-dirty,
+.session-workbench__editor-status.is-saving {
+  color: #8f5528;
+  background: rgba(188, 127, 74, 0.12);
+}
+
+.session-workbench__editor-status.is-saved {
+  color: var(--accent);
+  background: rgba(53, 92, 90, 0.1);
+}
+
+.session-workbench__editor-status.is-error {
+  color: #8d3427;
+  background: rgba(156, 61, 48, 0.12);
 }
 
 .session-workbench__review {
@@ -296,6 +362,41 @@
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.66);
   padding: 8px;
+}
+
+.session-workbench__layer-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.session-workbench__ai-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.session-workbench__ai-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.session-workbench__ai-compare-section {
+  padding: 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.session-workbench__ai-compare-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
 }
 
 @media (max-width: 1280px) {

@@ -7,7 +7,7 @@ import {
 } from '@app/features/annotation/annotation-export'
 import { CaptureEditorSurface } from '@app/features/capture/CaptureEditorSurface'
 import { CaptureOverlayComposer } from '@app/features/capture/CaptureOverlayComposer'
-import type { CaptureSelection, PendingSnipCapture } from '@shared/capture/contracts'
+import type { CaptureDisplay, CapturePreferences, CaptureSelection, PendingSnipCapture } from '@shared/capture/contracts'
 import type { CurrentTargetOption, CurrentTargetOptionsPayload } from '@shared/contracts/workbench'
 
 const isMac = navigator.platform.toLowerCase().includes('mac')
@@ -40,6 +40,8 @@ const resolveTargetOption = (
 
 export const CaptureOverlayPage = () => {
   const [pending, setPending] = useState<PendingSnipCapture | null>(null)
+  const [displays, setDisplays] = useState<CaptureDisplay[]>([])
+  const [preferences, setPreferences] = useState<CapturePreferences | null>(null)
   const [targetPayload, setTargetPayload] = useState<CurrentTargetOptionsPayload | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [selection, setSelection] = useState<CaptureSelection | null>(null)
@@ -53,13 +55,19 @@ export const CaptureOverlayPage = () => {
   useEffect(() => {
     let cancelled = false
 
-    void alphaNexusApi.capture.getPendingSnip()
-      .then(async(result) => {
+    void Promise.all([
+      alphaNexusApi.capture.getPendingSnip(),
+      alphaNexusApi.capture.listDisplays(),
+      alphaNexusApi.capture.getPreferences(),
+    ])
+      .then(async([result, nextDisplays, nextPreferences]) => {
         if (cancelled) {
           return
         }
 
         setPending(result)
+        setDisplays(nextDisplays)
+        setPreferences(nextPreferences)
         setSelection(null)
         setAnnotations([])
         setActiveAnnotationIndex(null)
@@ -337,13 +345,41 @@ export const CaptureOverlayPage = () => {
       <div className="capture-overlay__meta">
         <span className="status-pill">Session：{selectedTargetOption?.session_title ?? pending?.session_title ?? pending?.session_id ?? '待定'}</span>
         <span className="status-pill">Target：{selectedTargetOption?.label ?? pending?.target_label ?? '待定'}</span>
-        <span className="status-pill">启动快捷键：{modifierLabel}+Shift+4</span>
+        <span className="status-pill">屏幕：{pending?.display_label ?? '待定'}</span>
+        <span className="status-pill">启动快捷键：{preferences?.snip_accelerator ?? `${modifierLabel}+Shift+4`}</span>
         <span className="status-pill">基础保存不依赖 AI</span>
         <span className="status-pill">复制后不关闭截图界面</span>
       </div>
 
       <div className="capture-overlay__workspace">
         <div className="capture-overlay__surface-card">
+          {pending && displays.length > 1 ? (
+            <label className="field">
+              <span>切换屏幕</span>
+              <select
+                className="session-workbench__trade-select"
+                disabled={uiBusy}
+                onChange={(event) => {
+                  void alphaNexusApi.capture.openSnipCapture({
+                    session_id: pending.session_id,
+                    contract_id: pending.contract_id,
+                    period_id: pending.period_id,
+                    trade_id: pending.trade_id ?? null,
+                    display_id: event.target.value,
+                    source_view: 'capture-overlay',
+                    kind: pending.kind,
+                  })
+                }}
+                value={pending.display_id}
+              >
+                {displays.map((display) => (
+                  <option key={display.id} value={display.id}>
+                    {display.label}{display.is_primary ? ' · Primary' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {pending ? (
             <CaptureEditorSurface
               activeAnnotationIndex={activeAnnotationIndex}

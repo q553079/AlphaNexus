@@ -80,9 +80,34 @@ export const OpenSnipCaptureInputSchema = z.object({
   contract_id: EntityIdSchema.optional(),
   period_id: EntityIdSchema.optional(),
   trade_id: EntityIdSchema.nullable().optional(),
+  display_id: z.string().min(1).optional(),
   source_view: SourceViewSchema.optional(),
   kind: CaptureKindSchema.default('chart'),
 }).optional()
+
+export const CaptureDisplaySchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  is_primary: z.boolean(),
+  scale_factor: z.number().positive(),
+  bounds: z.object({
+    x: z.number().int(),
+    y: z.number().int(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+})
+
+export const CapturePreferencesSchema = z.object({
+  schema_version: z.literal(1).default(1),
+  snip_accelerator: z.string().trim().min(1).max(64),
+  display_strategy: z.enum(['cursor-display', 'main-window-display']).default('cursor-display'),
+})
+
+export const SaveCapturePreferencesInputSchema = z.object({
+  snip_accelerator: z.string().trim().min(1).max(64),
+  display_strategy: z.enum(['cursor-display', 'main-window-display']),
+})
 
 export const CaptureSelectionSchema = z.object({
   x: z.number().min(0).max(1),
@@ -96,6 +121,7 @@ export const PendingSnipCaptureSchema = z.object({
   contract_id: EntityIdSchema.optional(),
   period_id: EntityIdSchema.optional(),
   trade_id: EntityIdSchema.nullable().optional(),
+  display_id: z.string().min(1),
   source_view: SourceViewSchema.optional(),
   kind: CaptureKindSchema,
   display_label: z.string().min(1),
@@ -127,6 +153,15 @@ export const SavePendingSnipInputSchema = z.object({
   kind: CaptureKindSchema.optional(),
 })
 
+export const PasteClipboardImageInputSchema = z.object({
+  session_id: EntityIdSchema,
+  trade_id: EntityIdSchema.nullable().optional(),
+  contract_id: EntityIdSchema.optional(),
+  period_id: EntityIdSchema.optional(),
+  source_view: SourceViewSchema.optional(),
+  kind: CaptureKindSchema.default('chart'),
+})
+
 export const CaptureTargetResolutionSchema = z.object({
   target_kind: z.enum(['session', 'trade']),
   session_id: EntityIdSchema,
@@ -151,9 +186,13 @@ export type CaptureCommandResult = z.infer<typeof CaptureCommandResultSchema>
 export type CaptureSessionContextInput = z.infer<typeof CaptureSessionContextInputSchema>
 export type CaptureTargetContextInput = z.infer<typeof CaptureTargetContextInputSchema>
 export type OpenSnipCaptureInput = z.infer<typeof OpenSnipCaptureInputSchema>
+export type CaptureDisplay = z.infer<typeof CaptureDisplaySchema>
+export type CapturePreferences = z.infer<typeof CapturePreferencesSchema>
+export type SaveCapturePreferencesInput = z.infer<typeof SaveCapturePreferencesInputSchema>
 export type CaptureSelection = z.infer<typeof CaptureSelectionSchema>
 export type PendingSnipCapture = z.infer<typeof PendingSnipCaptureSchema>
 export type SnipCaptureSelectionInput = z.infer<typeof SnipCaptureSelectionInputSchema>
 export type SavePendingSnipInput = z.infer<typeof SavePendingSnipInputSchema>
+export type PasteClipboardImageInput = z.infer<typeof PasteClipboardImageInputSchema>
 export type CaptureTargetResolution = z.infer<typeof CaptureTargetResolutionSchema>
 export type SavePendingSnipResult = z.infer<typeof SavePendingSnipResultSchema>

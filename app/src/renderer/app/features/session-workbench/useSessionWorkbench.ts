@@ -104,11 +104,19 @@ export type SessionWorkbenchController = {
   handleExport: () => Promise<void>
   handleImportScreenshot: () => Promise<void>
   handleOpenSnipCapture: () => Promise<void>
+  handlePasteClipboardImage: () => Promise<void>
+  handleReorderNoteBlocks: (input: {
+    session_id: string
+    context_type: 'session' | 'trade'
+    context_id: string
+    ordered_block_ids: string[]
+  }) => Promise<void>
   handleRestoreAiRecord: (aiRunId: string) => Promise<void>
   handleRestoreAnnotation: (annotationId: string) => Promise<void>
   handleRestoreScreenshot: (screenshotId: string) => Promise<void>
   handleRestoreBlock: (block: ContentBlockRecord) => Promise<void>
   handleRunAnalysis: () => Promise<void>
+  handleRunAnalysisAcrossProviders: () => Promise<void>
   handleSaveAnnotations: () => Promise<void>
   handleSaveRealtimeView: () => Promise<void>
   handleUpdateAnnotation: (input: {
@@ -364,11 +372,14 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleComposerSuggestionAccept,
     handleImportScreenshot,
     handleOpenSnipCapture,
+    handlePasteClipboardImage,
+    handleReorderNoteBlocks,
     handleRestoreAiRecord,
     handleRestoreAnnotation,
     handleRestoreBlock,
     handleRestoreScreenshot,
     handleRunAnalysis,
+    handleRunAnalysisAcrossProviders,
     handleSaveAnnotations,
     handleSaveRealtimeView,
     handleUpdateAnnotation,
@@ -463,11 +474,14 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleExport,
     handleImportScreenshot,
     handleOpenSnipCapture,
+    handlePasteClipboardImage,
+    handleReorderNoteBlocks,
     handleRestoreAiRecord,
     handleRestoreAnnotation,
     handleRestoreScreenshot,
     handleRestoreBlock,
     handleRunAnalysis,
+    handleRunAnalysisAcrossProviders,
     handleSaveAnnotations,
     handleSaveRealtimeView,
     handleUpdateAnnotation,

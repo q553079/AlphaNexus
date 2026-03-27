@@ -24,9 +24,16 @@ export type PromptActiveAnchorSummary = {
   related_card_titles: string[]
 }
 
+export type PromptSimilarCaseSummary = {
+  title: string
+  summary: string
+  match_reasons: string[]
+}
+
 export type PromptContextEnvelope = {
   approved_knowledge_hits?: PromptKnowledgeContextHit[]
   active_anchors?: PromptActiveAnchorSummary[]
+  similar_cases?: PromptSimilarCaseSummary[]
 }
 
 export type SuggestionPromptContextInput = {
@@ -77,6 +84,23 @@ export const buildKnowledgeAndAnchorContextSection = (
   return sections.join('\n')
 }
 
+export const buildSimilarCaseContextSection = (
+  context?: PromptContextEnvelope,
+  input: { maxCases?: number } = {},
+) => {
+  const maxCases = Math.max(1, Math.min(input.maxCases ?? 3, 6))
+  const cases = (context?.similar_cases ?? []).slice(0, maxCases)
+  if (cases.length === 0) {
+    return ''
+  }
+
+  return [
+    'Similar historical cases (local recall only):',
+    ...cases.map((item, index) =>
+      `- S${index + 1}: ${truncate(item.title, 64)} | ${truncate(item.summary, 120)}${item.match_reasons[0] ? ` | reason=${truncate(item.match_reasons[0], 72)}` : ''}`),
+  ].join('\n')
+}
+
 export const buildSuggestionPromptContextSection = (
   context?: PromptContextEnvelope,
   input: SuggestionPromptContextInput = {},
@@ -88,6 +112,10 @@ export const buildSuggestionPromptContextSection = (
   })
   if (contextSection) {
     sections.push(contextSection)
+  }
+  const similarCaseSection = buildSimilarCaseContextSection(context, { maxCases: 3 })
+  if (similarCaseSection) {
+    sections.push(similarCaseSection)
   }
 
   const recentEvents = (input.recentEvents ?? []).slice(0, 4)
@@ -126,6 +154,7 @@ Event stream:
 ${payload.events.map((event) => `- ${event.occurred_at}: ${event.title} | ${event.summary}`).join('\n')}
 
 ${buildKnowledgeAndAnchorContextSection(context)}
+${buildSimilarCaseContextSection(context)}
 
 ${buildOutputLanguageRules()}
 `.trim()
@@ -180,6 +209,7 @@ ${detail.trade.status === 'closed'
       : '- Trade is not closed yet. Focus on execution quality and what must improve before full closure.'}
 
 ${buildKnowledgeAndAnchorContextSection(context)}
+${buildSimilarCaseContextSection(context)}
 
 ${buildOutputLanguageRules()}
 `.trim()
@@ -192,6 +222,7 @@ Review the following sessions:
 ${sessionTitles.map((title) => `- ${title}`).join('\n')}
 
 ${buildKnowledgeAndAnchorContextSection(context)}
+${buildSimilarCaseContextSection(context)}
 
 ${buildOutputLanguageRules()}
 `.trim()

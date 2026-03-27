@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { REALTIME_VIEW_TITLE, buildSummary, createId, currentIso } from '@main/db/repositories/workbench-utils'
 import { loadContentBlockById } from '@main/db/repositories/workbench-queries'
+import { ReorderContentBlocksInputSchema } from '@shared/contracts/workbench'
 
 const standaloneUserEventTypes = new Set(['observation', 'thesis', 'review'])
 
@@ -191,4 +192,64 @@ export const updateWorkbenchNoteBlock = (
   }
 
   return loadContentBlockById(db, existingBlock.id)
+}
+
+export const reorderWorkbenchContentBlocks = (
+  db: Database.Database,
+  rawInput: unknown,
+) => {
+  const input = ReorderContentBlocksInputSchema.parse(rawInput)
+  const existingBlocks = db.prepare(`
+    SELECT content_blocks.id, content_blocks.sort_order
+    FROM content_blocks
+    LEFT JOIN events ON events.id = content_blocks.event_id
+    WHERE content_blocks.session_id = ?
+      AND content_blocks.context_type = ?
+      AND content_blocks.context_id = ?
+      AND content_blocks.block_type = 'markdown'
+      AND content_blocks.soft_deleted = 0
+      AND content_blocks.deleted_at IS NULL
+      AND content_blocks.title <> ?
+      AND (events.event_type IS NULL OR events.event_type <> 'review')
+    ORDER BY content_blocks.sort_order ASC, content_blocks.created_at ASC
+  `).all(
+    input.session_id,
+    input.context_type,
+    input.context_id,
+    REALTIME_VIEW_TITLE,
+  ) as Array<{ id: string, sort_order: number }>
+
+  if (existingBlocks.length === 0) {
+    throw new Error('当前上下文下没有可重排的文本块。')
+  }
+
+  if (existingBlocks.length !== input.ordered_block_ids.length) {
+    throw new Error('重排请求与当前上下文中的真实文本块数量不一致。')
+  }
+
+  const existingIds = new Set(existingBlocks.map((block) => block.id))
+  const orderedIds = new Set(input.ordered_block_ids)
+  if (orderedIds.size !== input.ordered_block_ids.length || existingIds.size !== orderedIds.size) {
+    throw new Error('重排请求中存在重复或缺失的文本块。')
+  }
+  for (const blockId of input.ordered_block_ids) {
+    if (!existingIds.has(blockId)) {
+      throw new Error(`文本块 ${blockId} 不属于当前可编辑上下文。`)
+    }
+  }
+
+  const baseSortOrder = Math.min(...existingBlocks.map((block) => block.sort_order))
+  const transaction = db.transaction(() => {
+    input.ordered_block_ids.forEach((blockId, index) => {
+      db.prepare(`
+        UPDATE content_blocks
+        SET sort_order = ?
+        WHERE id = ?
+      `).run(baseSortOrder + index, blockId)
+    })
+
+    return loadContentBlockById(db, input.ordered_block_ids[0])
+  })
+
+  return transaction()
 }

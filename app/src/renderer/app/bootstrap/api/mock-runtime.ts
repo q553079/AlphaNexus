@@ -25,6 +25,7 @@ import {
   type ScreenshotMutationResult,
   type ContentBlockMutationResult,
   type PeriodReviewPayload,
+  type ReorderContentBlocksInput,
   type ReduceTradeInput,
   type RunAnnotationSuggestionsInput,
   type RunAiAnalysisInput,
@@ -42,8 +43,21 @@ import {
   type UpdateAnnotationInput,
   type UpdateWorkbenchNoteBlockInput,
 } from '@shared/contracts/workbench'
-import type { AiProviderConfig, AiRunExecutionResult, RunMockAiAnalysisInput, TradeReviewDraft } from '@shared/ai/contracts'
-import type { SavePendingSnipResult } from '@shared/capture/contracts'
+import type {
+  AiProviderConfig,
+  AiRunExecutionResult,
+  PromptTemplate,
+  RunMockAiAnalysisInput,
+  SavePromptTemplateInput,
+  TradeReviewDraft,
+} from '@shared/ai/contracts'
+import type {
+  CaptureDisplay,
+  CapturePreferences,
+  PasteClipboardImageInput,
+  SaveCapturePreferencesInput,
+  SavePendingSnipResult,
+} from '@shared/capture/contracts'
 import type { ExportSessionMarkdownInput, SessionMarkdownExport } from '@shared/export/contracts'
 import type {
   ContinueSessionInput,
@@ -145,6 +159,51 @@ let mockProviders: AiProviderConfig[] = [
     secret_storage: 'none',
     supports_base_url_override: true,
     supports_local_api_key: true,
+  },
+]
+let mockPromptTemplates: PromptTemplate[] = [
+  {
+    schema_version: 1,
+    template_id: 'market-analysis',
+    label: '盘中市场分析',
+    base_system_prompt: 'Mock market analysis system prompt.',
+    runtime_notes: '',
+    output_contract_summary: 'bias / confidence / reversal / entry / stop / take profit / invalidation / summary / deep analysis / supporting factors',
+  },
+  {
+    schema_version: 1,
+    template_id: 'trade-review',
+    label: '交易级复盘',
+    base_system_prompt: 'Mock trade review system prompt.',
+    runtime_notes: '',
+    output_contract_summary: 'summary / what went well / mistakes / next improvements / deep analysis',
+  },
+  {
+    schema_version: 1,
+    template_id: 'period-review',
+    label: '周期复盘',
+    base_system_prompt: 'Mock period review system prompt.',
+    runtime_notes: '',
+    output_contract_summary: 'summary / strengths / mistakes / recurring patterns / action items / deep analysis',
+  },
+]
+let mockCapturePreferences: CapturePreferences = {
+  schema_version: 1,
+  snip_accelerator: 'CommandOrControl+Shift+4',
+  display_strategy: 'cursor-display',
+}
+const mockCaptureDisplays: CaptureDisplay[] = [
+  {
+    id: 'mock-display-1',
+    label: 'Mock Display 1',
+    is_primary: true,
+    scale_factor: 1,
+    bounds: {
+      x: 0,
+      y: 0,
+      width: 1600,
+      height: 900,
+    },
   },
 ]
 let mockCaptureContext: CaptureSessionContextInput = {
@@ -1689,15 +1748,17 @@ const buildMockPendingSnip = (currentContext: CurrentContext): PendingSnipCaptur
   const targetOptions = buildMockTargetOptions(payload, currentContext)
   const currentTarget = targetOptions.find((option) => option.is_current) ?? targetOptions[0]
   const openTradeTarget = targetOptions.find((option) => option.target_kind === 'trade' && option.trade_status === 'open') ?? null
+  const display = mockCaptureDisplays[0]
 
   return {
     session_id: currentContext.session_id,
     contract_id: currentContext.contract_id,
     period_id: currentContext.period_id,
     trade_id: currentContext.trade_id,
+    display_id: display.id,
     source_view: currentContext.source_view,
     kind: currentContext.capture_kind,
-    display_label: '模拟屏幕',
+    display_label: display.label,
     target_kind: currentTarget?.target_kind === 'trade' ? 'trade' : 'session',
     target_label: currentTarget?.label ?? payload.session.title,
     target_subtitle: currentTarget?.subtitle ?? 'Session 级目标 · Realtime view',
@@ -3083,7 +3144,51 @@ const openMockSnipCapture = (input?: OpenSnipCaptureInput) => {
       source_view: 'capture-overlay',
       capture_kind: input?.kind ?? mockCaptureContext.kind ?? mockCurrentContext.capture_kind,
     })
-  mockPendingSnip = buildMockPendingSnip(currentContext)
+  const nextPending = buildMockPendingSnip(currentContext)
+  mockPendingSnip = input?.display_id
+    ? {
+      ...nextPending,
+      display_id: input.display_id,
+      display_label: mockCaptureDisplays.find((item) => item.id === input.display_id)?.label ?? nextPending.display_label,
+    }
+    : nextPending
+}
+
+const mutateMockReorderContentBlocks = (input: ReorderContentBlocksInput): ContentBlockMutationResult => {
+  const targetPayload = getRawMockPayload(input.session_id)
+  const orderedIds = new Set(input.ordered_block_ids)
+  const contextBlocks = targetPayload.content_blocks
+    .filter((block) => block.context_type === input.context_type && block.context_id === input.context_id)
+    .filter((block) => block.block_type === 'markdown' && !block.soft_deleted)
+    .filter((block) => block.title !== 'Realtime view')
+
+  if (contextBlocks.length !== input.ordered_block_ids.length || contextBlocks.some((block) => !orderedIds.has(block.id))) {
+    throw new Error('mock runtime reorder 请求与当前上下文块集合不一致。')
+  }
+
+  const baseSortOrder = Math.min(...contextBlocks.map((block) => block.sort_order))
+  const nextBlocks = targetPayload.content_blocks.map((block) => {
+    const index = input.ordered_block_ids.indexOf(block.id)
+    if (index === -1) {
+      return block
+    }
+
+    return {
+      ...block,
+      sort_order: baseSortOrder + index,
+    }
+  })
+
+  const nextPayload = syncMockSessionPayload({
+    ...targetPayload,
+    content_blocks: nextBlocks,
+  })
+  const block = nextPayload.content_blocks.find((item) => item.id === input.ordered_block_ids[0])
+  if (!block) {
+    throw new Error('mock runtime 未找到重排后的文本块。')
+  }
+
+  return { block }
 }
 
 const listMockTargetOptions = (input?: ListTargetOptionsInput): CurrentTargetOptionsPayload => {
@@ -3166,6 +3271,7 @@ export const mockApi: AlphaNexusApi = {
     createNoteBlock: async(input) => mutateMockCreateNoteBlock(input),
     updateNoteBlock: async(input) => mutateMockUpdateNoteBlock(input),
     moveContentBlock: async(input) => mutateMockMoveContentBlock(input),
+    reorderContentBlocks: async(input) => mutateMockReorderContentBlocks(input),
     moveScreenshot: async() => {
       throw new Error('mock runtime 不再默认支持 screenshot 改挂载，请在 Electron 主进程真实链路中验证该能力。')
     },
@@ -3195,6 +3301,15 @@ export const mockApi: AlphaNexusApi = {
       openMockSnipCapture(input)
       return { ok: true as const }
     },
+    listDisplays: async() => mockCaptureDisplays,
+    getPreferences: async() => mockCapturePreferences,
+    savePreferences: async(input: SaveCapturePreferencesInput) => {
+      mockCapturePreferences = {
+        schema_version: 1,
+        ...input,
+      }
+      return mockCapturePreferences
+    },
     getPendingSnip: async() => mockPendingSnip,
     copyPendingSnip: async(_input: SnipCaptureSelectionInput) => {
       ensureMockPendingSnip()
@@ -3210,6 +3325,31 @@ export const mockApi: AlphaNexusApi = {
     cancelPendingSnip: async() => {
       mockPendingSnip = null
       return { ok: true as const }
+    },
+    pasteClipboardImage: async(input: PasteClipboardImageInput) => {
+      const currentContext = updateMockCurrentContext({
+        session_id: input.session_id,
+        trade_id: input.trade_id ?? null,
+        source_view: input.source_view ?? 'session-workbench',
+        capture_kind: input.kind,
+      })
+      const pending = {
+        ...buildMockPendingSnip(currentContext),
+        display_id: 'mock-clipboard',
+        display_label: '模拟剪贴板图片',
+      }
+      const result = createMockSnipCapture(pending, {
+        selection: {
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+        },
+        run_ai: false,
+        kind: input.kind,
+      })
+      emitMockCaptureSaved(result)
+      return result
     },
     importImage: async(input) => {
       const currentContext = updateMockCurrentContext({
@@ -3279,6 +3419,16 @@ export const mockApi: AlphaNexusApi = {
         : provider)
 
       return mockProviders
+    },
+    listPromptTemplates: async() => mockPromptTemplates,
+    savePromptTemplate: async(input: SavePromptTemplateInput) => {
+      mockPromptTemplates = mockPromptTemplates.map((template) => template.template_id === input.template_id
+        ? {
+          ...template,
+          runtime_notes: input.runtime_notes,
+        }
+        : template)
+      return mockPromptTemplates
     },
     runAnalysis: async(input) => mutateMockAiAnalysis(input),
     runMockAnalysis: async(input: RunMockAiAnalysisInput) => {

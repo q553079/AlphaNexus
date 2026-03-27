@@ -19,13 +19,16 @@ import {
   recallSimilarCases,
 } from '@main/domain/suggestion-service'
 import { buildMarketAnalysisPrompt, buildPeriodReviewPrompt, buildTradeReviewPrompt } from '@main/ai/prompt-builders'
+import { listPromptTemplates as loadPromptTemplates, resolvePromptTemplate, savePromptTemplate as persistPromptTemplate } from '@main/ai/prompt-template-storage'
 import { aiAdapters } from '@main/ai/registry'
 import {
   AiProviderConfigSchema,
   AiRunExecutionResultSchema,
   MockAiRunResultSchema,
+  PromptTemplateSchema,
   RunAiAnalysisInputSchema,
   RunMockAiAnalysisInputSchema,
+  SavePromptTemplateInputSchema,
   SaveAiProviderConfigInputSchema,
   type AiAnalysisDraft,
   type AiProviderConfig,
@@ -160,6 +163,14 @@ const mergeProviderConfigs = async(paths: LocalFirstPaths, env: AppEnvironment):
 
 export const listAiProviders = async(paths: LocalFirstPaths, env: AppEnvironment) => mergeProviderConfigs(paths, env)
 
+export const listPromptTemplates = async(paths: LocalFirstPaths) =>
+  (await loadPromptTemplates(paths)).map((template) => PromptTemplateSchema.parse(template))
+
+export const savePromptTemplate = async(paths: LocalFirstPaths, rawInput: unknown) => {
+  const input = SavePromptTemplateInputSchema.parse(rawInput)
+  return (await persistPromptTemplate(paths, input)).map((template) => PromptTemplateSchema.parse(template))
+}
+
 export const saveAiProviderConfig = async(paths: LocalFirstPaths, env: AppEnvironment, rawInput: unknown) => {
   const input = SaveAiProviderConfigInputSchema.parse(rawInput)
   const existing = await mergeProviderConfigs(paths, env)
@@ -290,7 +301,7 @@ const buildPromptContext = async(
   input?: { screenshot_id?: string | null, trade_id?: string | null },
 ) => {
   const scopeTrade = resolveScopedTrade(payload, input?.trade_id, input?.screenshot_id)
-  const [runtime, activeAnchors] = await Promise.all([
+  const [runtime, activeAnchors, similarCases] = await Promise.all([
     getApprovedKnowledgeRuntime(paths, {
       contract_scope: payload.contract.symbol,
       tags: payload.session.tags,
@@ -304,6 +315,14 @@ const buildPromptContext = async(
       trade_id: scopeTrade?.id ?? null,
       status: 'active',
       limit: 4,
+    }),
+    recallSimilarCases(paths, {
+      session_id: payload.session.id,
+      contract_id: payload.contract.id,
+      timeframe_scope: payload.period.kind,
+      semantic_tags: payload.session.tags,
+      trade_context: scopeTrade?.thesis ?? payload.panels.my_realtime_view,
+      limit: 3,
     }),
   ])
 
@@ -322,8 +341,14 @@ const buildPromptContext = async(
       hit_count: anchor.hit_count,
       related_card_titles: anchor.related_card_titles,
     })),
+    similar_cases: similarCases.hits.map((hit) => ({
+      title: hit.title,
+      summary: hit.summary,
+      match_reasons: hit.match_reasons,
+    })),
     runtime_hits: runtime.hits,
     active_anchor_ids: activeAnchors.anchors.map((anchor) => anchor.anchor_id),
+    similar_case_hits: similarCases.hits,
   }
 }
 
@@ -438,6 +463,7 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     trade_id: scopedTrade?.id ?? null,
   })
   const promptPreview = buildPromptPreview(payload, input, promptContext, tradeDetail)
+  const promptTemplate = await resolvePromptTemplate(paths, input.prompt_kind)
   const providerConfigs = await mergeProviderConfigs(paths, env)
   const providerConfig = providerConfigs.find((config) => config.provider === input.provider)
 
@@ -466,6 +492,7 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     paths,
     payload,
     promptPreview,
+    promptTemplate,
     providerSecret,
     attachment_screenshot_ids: input.prompt_kind === 'trade-review'
       ? resolveTradeReviewAttachments(tradeDetail!)

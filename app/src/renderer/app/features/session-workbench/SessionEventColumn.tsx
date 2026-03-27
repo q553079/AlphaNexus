@@ -7,6 +7,7 @@ import type { EventRecord } from '@shared/contracts/event'
 import type { TradeRecord } from '@shared/contracts/trade'
 import type { EventStreamFilterKey } from '@app/ui/display-text'
 import { buildEventStreamViewModel, type EventClusterKind } from './modules/session-event-stream'
+import { SessionEventVirtualList } from './SessionEventVirtualList'
 
 type SessionEventColumnProps = {
   currentTrade: TradeRecord | null
@@ -203,8 +204,13 @@ export const SessionEventColumn = ({
             </div>
           </div>
 
-          <div className="event-list session-workbench__event-list">
-            {viewModel.blocks.length > 0 ? viewModel.blocks.map((block) => {
+          {viewModel.blocks.length > 0 ? (
+            <SessionEventVirtualList
+              items={viewModel.blocks.map((block) => ({
+                id: block.kind === 'cluster' ? block.id : block.item.event.id,
+                data: block,
+              }))}
+              renderItem={(block) => {
               if (block.kind === 'cluster') {
                 return (
                   <button
@@ -255,8 +261,9 @@ export const SessionEventColumn = ({
                   trade={block.item.trade}
                 />
               )
-            }) : <div className="empty-state">当前过滤和 focus 条件下没有事件。</div>}
-          </div>
+              }}
+            />
+          ) : <div className="empty-state">当前过滤和 focus 条件下没有事件。</div>}
         </div>
       </SectionCard>
     </section>

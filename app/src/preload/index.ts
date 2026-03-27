@@ -34,6 +34,7 @@ import type {
   IngestKnowledgeSourceInput,
   ListMemoryProposalsInput,
   OpenSnipCaptureInput,
+  ReorderContentBlocksInput,
   ReduceTradeInput,
   ReviewKnowledgeCardInput,
   RunAnnotationSuggestionsInput,
@@ -49,10 +50,16 @@ import type {
 } from '@shared/contracts/workbench'
 import type {
   ImportScreenshotInput,
+  PasteClipboardImageInput,
+  SaveCapturePreferencesInput,
   SavePendingSnipResult,
   SaveScreenshotAnnotationsInput,
 } from '@shared/capture/contracts'
-import type { RunMockAiAnalysisInput, SaveAiProviderConfigInput } from '@shared/ai/contracts'
+import type {
+  RunMockAiAnalysisInput,
+  SaveAiProviderConfigInput,
+  SavePromptTemplateInput,
+} from '@shared/ai/contracts'
 
 const api: AlphaNexusApi = {
   app: {
@@ -96,6 +103,7 @@ const api: AlphaNexusApi = {
     createNoteBlock: (input) => ipcRenderer.invoke('workbench:create-note-block', input),
     updateNoteBlock: (input) => ipcRenderer.invoke('workbench:update-note-block', input),
     moveContentBlock: (input: MoveContentBlockInput) => ipcRenderer.invoke('workbench:move-content-block', input),
+    reorderContentBlocks: (input: ReorderContentBlocksInput) => ipcRenderer.invoke('workbench:reorder-content-blocks', input),
     moveScreenshot: (input: MoveScreenshotInput) => ipcRenderer.invoke('workbench:move-screenshot', input),
     deleteContentBlock: (input: SetContentBlockDeletedInput) => ipcRenderer.invoke('workbench:delete-content-block', input),
     restoreContentBlock: (input: SetContentBlockDeletedInput) => ipcRenderer.invoke('workbench:restore-content-block', input),
@@ -110,10 +118,14 @@ const api: AlphaNexusApi = {
   capture: {
     setSessionContext: (input: CaptureSessionContextInput) => ipcRenderer.invoke('capture:set-session-context', input),
     openSnipCapture: (input?: OpenSnipCaptureInput) => ipcRenderer.invoke('capture:open-snip', input),
+    listDisplays: () => ipcRenderer.invoke('capture:list-displays'),
+    getPreferences: () => ipcRenderer.invoke('capture:get-preferences'),
+    savePreferences: (input: SaveCapturePreferencesInput) => ipcRenderer.invoke('capture:save-preferences', input),
     getPendingSnip: () => ipcRenderer.invoke('capture:get-pending-snip'),
     copyPendingSnip: (input: SnipCaptureSelectionInput) => ipcRenderer.invoke('capture:copy-pending-snip', input),
     savePendingSnip: (input: SavePendingSnipInput) => ipcRenderer.invoke('capture:save-pending-snip', input),
     cancelPendingSnip: () => ipcRenderer.invoke('capture:cancel-pending-snip'),
+    pasteClipboardImage: (input: PasteClipboardImageInput) => ipcRenderer.invoke('capture:paste-clipboard-image', input),
     importImage: (input: ImportScreenshotInput) => ipcRenderer.invoke('capture:import-image', input),
     saveAnnotations: (input: SaveScreenshotAnnotationsInput) => ipcRenderer.invoke('capture:save-annotations', input),
     onSaved: (listener) => {
@@ -130,6 +142,8 @@ const api: AlphaNexusApi = {
   ai: {
     listProviders: () => ipcRenderer.invoke('ai:list-providers'),
     saveProviderConfig: (input: SaveAiProviderConfigInput) => ipcRenderer.invoke('ai:save-provider-config', input),
+    listPromptTemplates: () => ipcRenderer.invoke('ai:list-prompt-templates'),
+    savePromptTemplate: (input: SavePromptTemplateInput) => ipcRenderer.invoke('ai:save-prompt-template', input),
     runAnalysis: (input: RunAiAnalysisInput) => ipcRenderer.invoke('ai:run-analysis', input),
     runMockAnalysis: (input: RunMockAiAnalysisInput) => ipcRenderer.invoke('ai:run-mock-analysis', input),
   },

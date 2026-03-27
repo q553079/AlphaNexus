@@ -34,6 +34,8 @@ type SessionWorkbenchActionDeps = {
   setSelectedScreenshotId: Dispatch<SetStateAction<string | null>>
 }
 
+const compareCapableProviders = new Set(['deepseek', 'openai', 'custom-http'])
+
 export const createSessionWorkbenchActions = ({
   anchors,
   draftAnnotations,
@@ -166,6 +168,49 @@ export const createSessionWorkbenchActions = ({
     }
   }
 
+  const handleRunAnalysisAcrossProviders = async() => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      setBusy(true)
+      const providers = await alphaNexusApi.ai.listProviders()
+      const compareProviders = providers
+        .filter((provider) => compareCapableProviders.has(provider.provider))
+        .filter((provider) => provider.enabled && provider.configured)
+      if (compareProviders.length < 2) {
+        throw new Error('至少需要两个已启用且已配置完成的真实 provider，才能进行多 AI 对照。')
+      }
+
+      let latestResult: Awaited<ReturnType<typeof alphaNexusApi.ai.runAnalysis>> | null = null
+      for (const provider of compareProviders) {
+        latestResult = await alphaNexusApi.ai.runAnalysis({
+          session_id: payload.session.id,
+          screenshot_id: selectedScreenshot?.id ?? null,
+          trade_id: payload.current_context.trade_id ?? null,
+          provider: provider.provider,
+          prompt_kind: 'market-analysis',
+        })
+      }
+
+      const nextPayload = await refreshSession(payload.session.id)
+      if (nextPayload && latestResult) {
+        await reloadGroundings(nextPayload, latestResult.ai_run.id)
+        setSelectedEventId(latestResult.event.id)
+        if (latestResult.event.screenshot_id) {
+          setSelectedScreenshotId(latestResult.event.screenshot_id)
+        }
+      }
+      setActiveTab('ai')
+      setMessage(`已完成 ${compareProviders.length} 个 provider 的顺序对照运行。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `多 AI 对照失败：${error.message}` : '多 AI 对照失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleExport = async() => {
     if (!payload) {
       return
@@ -261,6 +306,48 @@ export const createSessionWorkbenchActions = ({
     const result = await alphaNexusApi.workbench.updateNoteBlock(input)
     await refreshSession(payload.session.id)
     return result.block
+  }
+
+  const handleReorderNoteBlocks = async(input: {
+    session_id: string
+    context_type: 'session' | 'trade'
+    context_id: string
+    ordered_block_ids: string[]
+  }) => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      await alphaNexusApi.workbench.reorderContentBlocks(input)
+      await refreshSession(payload.session.id)
+    } catch (error) {
+      setMessage(error instanceof Error ? `重排失败：${error.message}` : '重排文本块失败。')
+    }
+  }
+
+  const handlePasteClipboardImage = async() => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      setBusy(true)
+      const result = await alphaNexusApi.capture.pasteClipboardImage({
+        session_id: payload.current_context.session_id,
+        contract_id: payload.current_context.contract_id ?? undefined,
+        period_id: payload.current_context.period_id ?? undefined,
+        trade_id: payload.current_context.trade_id ?? null,
+        source_view: 'session-workbench',
+        kind: payload.current_context.capture_kind,
+      })
+      setSelectedScreenshotId(result.screenshot.id)
+      setMessage(`已从剪贴板创建图块：${result.screenshot.caption ?? result.screenshot.id}。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? `粘贴失败：${error.message}` : '粘贴剪贴板图片失败。')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleAnnotationSuggestionAction = async(
@@ -580,11 +667,14 @@ export const createSessionWorkbenchActions = ({
     handleCreateNoteBlock,
     handleImportScreenshot,
     handleOpenSnipCapture,
+    handlePasteClipboardImage,
+    handleReorderNoteBlocks,
     handleRestoreAiRecord,
     handleRestoreAnnotation,
     handleRestoreBlock,
     handleRestoreScreenshot,
     handleRunAnalysis,
+    handleRunAnalysisAcrossProviders,
     handleSaveAnnotations,
     handleSaveRealtimeView,
     handleSetAnchorStatus,

@@ -10,6 +10,11 @@ const indexHtmlPath = join(__dirname, '../renderer/index.html')
 
 export const openCaptureOverlayWindow = (bounds?: Rectangle) => {
   if (captureOverlayWindow) {
+    if (bounds) {
+      captureOverlayWindow.setBounds(bounds, false)
+    }
+    captureOverlayWindow.webContents.reloadIgnoringCache()
+    captureOverlayWindow.show()
     captureOverlayWindow.focus()
     return captureOverlayWindow
   }

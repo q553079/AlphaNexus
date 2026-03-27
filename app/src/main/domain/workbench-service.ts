@@ -14,6 +14,7 @@ import {
   fetchSessionWorkbench,
   fetchTargetOptions,
   fetchTradeDetail,
+  reorderWorkbenchNotes,
   moveWorkbenchContentBlock,
   moveWorkbenchScreenshot,
   reduceTradePosition,
@@ -33,6 +34,7 @@ import type {
   CurrentTargetOptionsPayload,
   GetCurrentContextInput,
   MoveScreenshotInput,
+  ReorderContentBlocksInput,
   GetPeriodReviewInput,
   GetSessionWorkbenchInput,
   GetTradeDetailInput,
@@ -99,6 +101,9 @@ export const createWorkbenchNoteBlockForContext = async(paths: LocalFirstPaths, 
 
 export const updateWorkbenchNoteBlockContent = async(paths: LocalFirstPaths, input: UpdateWorkbenchNoteBlockInput) =>
   updateWorkbenchNote(paths, input)
+
+export const reorderWorkbenchNoteBlocks = async(paths: LocalFirstPaths, input: ReorderContentBlocksInput) =>
+  reorderWorkbenchNotes(paths, input)
 
 export const retargetContentBlock = async(paths: LocalFirstPaths, input: MoveContentBlockInput) =>
   moveWorkbenchContentBlock(paths, input)

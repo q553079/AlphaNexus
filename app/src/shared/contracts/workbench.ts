@@ -2,22 +2,28 @@ import { z } from 'zod'
 import {
   AiRunExecutionResultSchema,
   AiProviderConfigSchema,
+  PromptTemplateSchema,
   TradeReviewDraftSchema,
   MockAiRunResultSchema,
   RunAiAnalysisInputSchema,
   RunMockAiAnalysisInputSchema,
+  SavePromptTemplateInputSchema,
   SaveAiProviderConfigInputSchema,
 } from '@shared/ai/contracts'
 import {
   CaptureCommandResultSchema,
+  CaptureDisplaySchema,
+  CapturePreferencesSchema,
   CaptureResultSchema,
   CaptureTargetContextInputSchema,
   CaptureSessionContextInputSchema,
   ImportScreenshotInputSchema,
   OpenSnipCaptureInputSchema,
   PendingSnipCaptureSchema,
+  PasteClipboardImageInputSchema,
   SavePendingSnipInputSchema,
   SavePendingSnipResultSchema,
+  SaveCapturePreferencesInputSchema,
   SaveScreenshotAnnotationsInputSchema,
   SnipCaptureSelectionInputSchema,
 } from '@shared/capture/contracts'
@@ -302,6 +308,13 @@ export const MoveContentBlockInputSchema = z.object({
   trade_id: EntityIdSchema.nullable().optional(),
 })
 
+export const ReorderContentBlocksInputSchema = z.object({
+  session_id: EntityIdSchema,
+  context_type: z.enum(['session', 'trade']),
+  context_id: EntityIdSchema,
+  ordered_block_ids: z.array(EntityIdSchema).min(1),
+})
+
 export const ContentBlockMoveResultSchema = z.object({
   block: ContentBlockSchema,
   move_audit: ContentBlockMoveAuditSchema,
@@ -444,6 +457,7 @@ export type TradeMutationResult = z.infer<typeof TradeMutationResultSchema>
 export type SetContentBlockDeletedInput = z.infer<typeof SetContentBlockDeletedInputSchema>
 export type ContentBlockMutationResult = z.infer<typeof ContentBlockMutationResultSchema>
 export type MoveContentBlockInput = z.infer<typeof MoveContentBlockInputSchema>
+export type ReorderContentBlocksInput = z.infer<typeof ReorderContentBlocksInputSchema>
 export type ContentBlockMoveResult = z.infer<typeof ContentBlockMoveResultSchema>
 export type SetScreenshotDeletedInput = z.infer<typeof SetScreenshotDeletedInputSchema>
 export type MoveScreenshotInput = z.infer<typeof MoveScreenshotInputSchema>
@@ -487,11 +501,17 @@ export type SaveScreenshotAnnotationsInput = z.infer<typeof SaveScreenshotAnnota
 export type CaptureSessionContextInput = z.infer<typeof CaptureSessionContextInputSchema>
 export type CaptureTargetContextInput = z.infer<typeof CaptureTargetContextInputSchema>
 export type OpenSnipCaptureInput = z.infer<typeof OpenSnipCaptureInputSchema>
+export type CaptureDisplay = z.infer<typeof CaptureDisplaySchema>
+export type CapturePreferences = z.infer<typeof CapturePreferencesSchema>
+export type SaveCapturePreferencesInput = z.infer<typeof SaveCapturePreferencesInputSchema>
 export type PendingSnipCapture = z.infer<typeof PendingSnipCaptureSchema>
 export type SnipCaptureSelectionInput = z.infer<typeof SnipCaptureSelectionInputSchema>
 export type SavePendingSnipInput = z.infer<typeof SavePendingSnipInputSchema>
+export type PasteClipboardImageInput = z.infer<typeof PasteClipboardImageInputSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
+export type PromptTemplate = z.infer<typeof PromptTemplateSchema>
+export type SavePromptTemplateInput = z.infer<typeof SavePromptTemplateInputSchema>
 export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>
 export type ExportSessionMarkdownInput = z.infer<typeof ExportSessionMarkdownInputSchema>
 export type ContinueSessionInput = z.infer<typeof ContinueSessionInputSchema>
@@ -539,6 +559,7 @@ export type AlphaNexusApi = {
     createNoteBlock: (input: CreateWorkbenchNoteBlockInput) => Promise<ContentBlockMutationResult>
     updateNoteBlock: (input: UpdateWorkbenchNoteBlockInput) => Promise<ContentBlockMutationResult>
     moveContentBlock: (input: MoveContentBlockInput) => Promise<ContentBlockMoveResult>
+    reorderContentBlocks: (input: ReorderContentBlocksInput) => Promise<z.infer<typeof ContentBlockMutationResultSchema>>
     deleteContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>
     restoreContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>
     moveScreenshot: (input: MoveScreenshotInput) => Promise<ScreenshotMutationResult>
@@ -555,15 +576,21 @@ export type AlphaNexusApi = {
     saveAnnotations: (input: SaveScreenshotAnnotationsInput) => Promise<z.infer<typeof CaptureResultSchema>>
     setSessionContext: (input: CaptureSessionContextInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
     openSnipCapture: (input?: OpenSnipCaptureInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
+    listDisplays: () => Promise<z.infer<typeof CaptureDisplaySchema>[]>
+    getPreferences: () => Promise<z.infer<typeof CapturePreferencesSchema>>
+    savePreferences: (input: SaveCapturePreferencesInput) => Promise<z.infer<typeof CapturePreferencesSchema>>
     getPendingSnip: () => Promise<z.infer<typeof PendingSnipCaptureSchema> | null>
     copyPendingSnip: (input: SnipCaptureSelectionInput) => Promise<z.infer<typeof CaptureCommandResultSchema>>
     savePendingSnip: (input: SavePendingSnipInput) => Promise<z.infer<typeof SavePendingSnipResultSchema>>
     cancelPendingSnip: () => Promise<z.infer<typeof CaptureCommandResultSchema>>
+    pasteClipboardImage: (input: PasteClipboardImageInput) => Promise<z.infer<typeof SavePendingSnipResultSchema>>
     onSaved: (listener: (result: z.infer<typeof SavePendingSnipResultSchema>) => void) => () => void
   }
   ai: {
     listProviders: () => Promise<z.infer<typeof AiProviderConfigSchema>[]>
     saveProviderConfig: (input: SaveAiProviderConfigInput) => Promise<z.infer<typeof AiProviderConfigSchema>[]>
+    listPromptTemplates: () => Promise<z.infer<typeof PromptTemplateSchema>[]>
+    savePromptTemplate: (input: SavePromptTemplateInput) => Promise<z.infer<typeof PromptTemplateSchema>[]>
     runAnalysis: (input: RunAiAnalysisInput) => Promise<z.infer<typeof AiRunExecutionResultSchema>>
     runMockAnalysis: (input: RunMockAiAnalysisInput) => Promise<z.infer<typeof MockAiRunResultSchema>>
   }

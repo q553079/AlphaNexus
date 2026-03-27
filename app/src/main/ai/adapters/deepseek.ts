@@ -4,14 +4,6 @@ import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contra
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_MODEL = 'deepseek-reasoner'
 
-const SYSTEM_PROMPT = [
-  'You are AlphaNexus, a professional trading review assistant.',
-  'Assume strong domain knowledge in ICT, price action, heatmaps, DOM, footprint, and options context.',
-  'Use only the supplied session context and avoid inventing chart facts that are not in the input.',
-  'Reason in English if useful, but write all user-facing value strings in Simplified Chinese unless a symbol, number, or standard trading term should remain unchanged.',
-  'Return only one valid JSON object.',
-].join(' ')
-
 const JSON_CONTRACT = [
   'Return a JSON object with exactly these keys:',
   '{',
@@ -87,6 +79,13 @@ const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
     : AiAnalysisDraftSchema.parse(payload)
 }
 
+const buildSystemPrompt = (input: AiAdapterRunInput) =>
+  [
+    input.promptTemplate.base_system_prompt,
+    input.promptTemplate.runtime_notes.trim(),
+    'Return only one valid JSON object.',
+  ].filter((section) => section.length > 0).join('\n\n')
+
 const runDeepSeekAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
   const {
     config,
@@ -107,7 +106,7 @@ const runDeepSeekAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRu
       model: config.model || DEFAULT_MODEL,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: buildSystemPrompt(input) },
         {
           role: 'user',
           content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review' ? TRADE_REVIEW_JSON_CONTRACT : JSON_CONTRACT}`,

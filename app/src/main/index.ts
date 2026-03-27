@@ -17,7 +17,7 @@ const boot = async() => {
     console.error('AlphaNexus storage initialization failed. Falling back to limited boot mode.', error)
   }
   createMainWindow()
-  registerCaptureShortcuts(paths)
+  await registerCaptureShortcuts(paths)
 }
 
 app.whenReady().then(() => {

@@ -1,5 +1,6 @@
 import type { ScreenshotRecord } from '@shared/contracts/content'
 import { translateCaptureKind } from '@app/ui/display-text'
+import { LazyImage } from '@app/components/LazyImage'
 
 type TradeThreadMediaStripProps = {
   setupScreenshot: ScreenshotRecord | null
@@ -28,7 +29,7 @@ const StageCard = (props: {
 
     {props.primaryScreenshot ? (
       <div className="trade-thread-media__hero">
-        <img alt={props.primaryScreenshot.caption ?? props.title} src={props.primaryScreenshot.asset_url} />
+        <LazyImage alt={props.primaryScreenshot.caption ?? props.title} aspectRatio="16 / 9" src={props.primaryScreenshot.asset_url} />
         <div className="trade-thread-media__hero-meta">
           <span className="badge">{translateCaptureKind(props.primaryScreenshot.kind)}</span>
           <strong>{props.primaryScreenshot.caption ?? '无标题截图'}</strong>
@@ -40,7 +41,7 @@ const StageCard = (props: {
       <div className="trade-thread-media__filmstrip">
         {props.secondaryScreenshots.slice(0, 3).map((screenshot) => (
           <article className="trade-thread-media__thumb" key={screenshot.id}>
-            <img alt={screenshot.caption ?? props.title} src={screenshot.asset_url} />
+            <LazyImage alt={screenshot.caption ?? props.title} aspectRatio="16 / 9" src={screenshot.asset_url} />
             <span>{screenshot.caption ?? translateCaptureKind(screenshot.kind)}</span>
           </article>
         ))}

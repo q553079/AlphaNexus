@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 import { AIProviderList } from '@app/features/integrations/AIProviderList'
+import { PromptTemplateManager } from '@app/features/integrations/PromptTemplateManager'
 import { MemoryProposalReviewPanel } from '@app/features/memory/MemoryProposalReviewPanel'
 import { RankingExplanationPanel } from '@app/features/profile/RankingExplanationPanel'
 import { UserProfilePanel } from '@app/features/profile/UserProfilePanel'
 import { TrainingInsightList } from '@app/features/training/TrainingInsightList'
+import { CaptureSettingsPanel } from '@app/features/capture/CaptureSettingsPanel'
 import { PageHeading } from '@app/components/PageHeading'
 import { SectionCard } from '@app/components/SectionCard'
 import type { EnvironmentInfo } from '@shared/contracts/workbench'
@@ -77,6 +79,16 @@ export const SettingsAiPage = () => {
       <SectionCard title="提供方列表">
         <AIProviderList />
       </SectionCard>
+
+      <div className="two-column">
+        <SectionCard title="Prompt 模板" subtitle="集中管理运行时补充约束，避免把 prompt 片段散落到多个页面和 adapter。">
+          <PromptTemplateManager />
+        </SectionCard>
+
+        <SectionCard title="截图偏好" subtitle="系统级截图快捷键、多屏默认策略等都由主进程集中管理。">
+          <CaptureSettingsPanel />
+        </SectionCard>
+      </div>
 
       <div className="two-column">
         <SectionCard title="用户画像快照" subtitle="只展示由历史 trade / evaluation 证据聚合出来的结构化画像。">

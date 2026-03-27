@@ -5,6 +5,7 @@ import type {
   AiAnalysisDraft,
   AiProviderConfig,
   MockAiRunResult,
+  PromptTemplate,
   RunAiAnalysisInput,
   RunMockAiAnalysisInput,
   TradeReviewDraft,
@@ -19,6 +20,7 @@ export type AiAdapterRunInput = {
   payload: SessionWorkbenchPayload
   promptPreview: string
   providerSecret: ProviderSecretResolution
+  promptTemplate: PromptTemplate
   attachment_screenshot_ids?: string[]
 }
 

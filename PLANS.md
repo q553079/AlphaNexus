@@ -56,3 +56,4 @@ Implementation should follow the approved plan instead of improvising broad rewr
 - 2026-03-27: [P0 session mainline hardening](plans/2026-03-27-p0-session-mainline-hardening.md)
 - 2026-03-27: [P2 knowledge and context input closure](plans/2026-03-27-p2-knowledge-context-input-closure.md)
 - 2026-03-27: [P3 trade loop closure](plans/2026-03-27-p3-trade-loop-closure.md)
+- 2026-03-27: [P5 stability, UX, and AI quality hardening](plans/2026-03-27-p5-stability-ux-ai-quality.md)
