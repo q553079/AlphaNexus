@@ -5,10 +5,24 @@ import type { TradeRecord } from '@shared/contracts/trade'
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import type {
   AiPacketBackgroundToggles,
+  AiPacketDispatchRecord,
   AiPacketComposerState,
   AiPacketPreview,
   AnalysisTrayState,
 } from '../session-workbench-types'
+
+export const resolveAiPacketImageRegionLabel = (mode: AiPacketComposerState['imageRegionMode']) => {
+  if (mode === 'selection') {
+    return '局部'
+  }
+  if (mode === 'annotations-only') {
+    return '标注层'
+  }
+  if (mode === 'full-with-highlight') {
+    return '整图高亮'
+  }
+  return '整图'
+}
 
 export const createDefaultAiPacketBackgroundToggles = (): AiPacketBackgroundToggles => ({
   includeCurrentNote: true,
@@ -108,6 +122,7 @@ export const buildAiPacketBackgroundDraft = (input: {
 
 export const buildAiPacketPreview = (input: {
   backgroundScreenshotIds: string[]
+  imageRegionMode: AiPacketComposerState['imageRegionMode']
   selectedEventIds: string[]
   toggles: AiPacketBackgroundToggles
   primaryScreenshotId: string | null
@@ -115,6 +130,7 @@ export const buildAiPacketPreview = (input: {
   const includedItems = [
     input.primaryScreenshotId ? '主图' : null,
     input.backgroundScreenshotIds.length > 0 ? `${input.backgroundScreenshotIds.length} 张附图` : null,
+    `图像模式：${resolveAiPacketImageRegionLabel(input.imageRegionMode)}`,
     input.toggles.includeCurrentNote ? '当前笔记' : null,
     input.toggles.includeEventRangeSummary ? '事件摘要' : null,
     input.toggles.includeTradeFacts ? 'Trade facts' : null,
@@ -138,6 +154,7 @@ export const buildAiPacketPreview = (input: {
     summary: uniqueOrdered([
       input.primaryScreenshotId ? '1 张主图' : '0 张主图',
       input.backgroundScreenshotIds.length > 0 ? `${input.backgroundScreenshotIds.length} 张附图` : null,
+      resolveAiPacketImageRegionLabel(input.imageRegionMode),
       input.toggles.includeCurrentNote ? '当前笔记' : null,
       input.toggles.includeEventRangeSummary ? '事件摘要' : null,
       input.toggles.includeTradeFacts ? 'Trade facts' : null,
@@ -182,6 +199,7 @@ export const createAiPacketComposerState = (input: {
     preview: buildAiPacketPreview({
       primaryScreenshotId,
       backgroundScreenshotIds,
+      imageRegionMode: 'full',
       selectedEventIds: input.selectedEventIds,
       toggles: backgroundToggles,
     }),
@@ -199,6 +217,7 @@ export const rebuildAiPacketComposerState = (input: {
   const preview = buildAiPacketPreview({
     primaryScreenshotId: input.composer.primaryScreenshotId,
     backgroundScreenshotIds: input.composer.backgroundScreenshotIds,
+    imageRegionMode: input.composer.imageRegionMode,
     selectedEventIds: input.selectedEventIds,
     toggles: input.composer.backgroundToggles,
   })
@@ -221,6 +240,7 @@ export const rebuildAiPacketComposerState = (input: {
 
 export const buildAiAnalysisContextFromComposer = (input: {
   composer: AiPacketComposerState
+  attachments?: AiAnalysisContextInput['attachments']
   selectedEventIds: string[]
 }): AiAnalysisContextInput => ({
   background_screenshot_ids: input.composer.backgroundScreenshotIds,
@@ -230,7 +250,7 @@ export const buildAiAnalysisContextFromComposer = (input: {
   background_toggles: input.composer.backgroundToggles,
   packet_preview: input.composer.preview,
   background_note_md: input.composer.backgroundDraft,
-  attachments: [],
+  attachments: input.attachments ?? [],
 })
 
 export const buildAiDockContextChips = (input: {
@@ -240,7 +260,21 @@ export const buildAiDockContextChips = (input: {
   input.composer.primaryScreenshotId ? '主图' : null,
   input.composer.backgroundScreenshotIds.length > 0 ? `附图 ${input.composer.backgroundScreenshotIds.length}` : null,
   input.selectedEventIds.length > 0 ? `区间 ${input.selectedEventIds.length}` : null,
+  resolveAiPacketImageRegionLabel(input.composer.imageRegionMode),
   ...input.composer.preview.includedItems.filter((item) =>
+    item === '当前笔记'
+    || item === '事件摘要'
+    || item === 'Trade facts'
+    || item === 'Session 摘要'
+    || item === '历史 AI'),
+])
+
+export const buildAiDockContextChipsFromDispatch = (packet: AiPacketDispatchRecord) => uniqueOrdered([
+  packet.primaryScreenshotId ? '主图' : null,
+  packet.backgroundScreenshotIds.length > 0 ? `附图 ${packet.backgroundScreenshotIds.length}` : null,
+  packet.sourceEventIds.length > 0 ? `区间 ${packet.sourceEventIds.length}` : null,
+  resolveAiPacketImageRegionLabel(packet.imageRegionMode),
+  ...packet.preview.includedItems.filter((item) =>
     item === '当前笔记'
     || item === '事件摘要'
     || item === 'Trade facts'

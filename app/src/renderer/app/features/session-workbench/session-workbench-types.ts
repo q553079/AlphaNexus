@@ -21,6 +21,17 @@ export type AiPacketPreview = {
   summary: string
 }
 
+export type AiPacketAttachmentView = {
+  id: string
+  screenshotId: string
+  role: 'primary' | 'background'
+  name: string
+  previewDataUrl: string | null
+  requestedMode: AiPacketImageRegionMode
+  resolvedModeLabel: string
+  detail: string
+}
+
 export type EventSelectionState = {
   mode: EventSelectionMode
   primaryEventId: string | null
@@ -59,4 +70,17 @@ export type AiPacketComposerState = {
   backgroundDraft: string
   backgroundDraftDirty: boolean
   preview: AiPacketPreview
+}
+
+export type AiPacketDispatchRecord = {
+  sentAt: string
+  primaryScreenshotId: string | null
+  backgroundScreenshotIds: string[]
+  sourceEventIds: string[]
+  followUpQuestion: string | null
+  imageRegionMode: AiPacketImageRegionMode
+  backgroundDraft: string
+  backgroundToggles: AiPacketBackgroundToggles
+  preview: AiPacketPreview
+  attachments: AiPacketAttachmentView[]
 }

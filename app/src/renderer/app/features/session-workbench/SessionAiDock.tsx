@@ -1,6 +1,6 @@
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import { formatTime } from '@app/ui/display-text'
-import type { AiDockState, AiDockTab, AiPacketComposerState } from './session-workbench-types'
+import type { AiDockState, AiDockTab, AiPacketComposerState, AiPacketDispatchRecord } from './session-workbench-types'
 
 type SessionAiDockProps = {
   busy: boolean
@@ -9,6 +9,7 @@ type SessionAiDockProps = {
   dockDraft: string
   dockState: AiDockState
   dockTab: AiDockTab
+  lastPacket: AiPacketDispatchRecord | null
   onOpenComposer: () => void
   onSendFollowUp: () => void
   onSetDockDraft: (value: string) => void
@@ -33,6 +34,7 @@ export const SessionAiDock = ({
   dockDraft,
   dockState,
   dockTab,
+  lastPacket,
   onOpenComposer,
   onSendFollowUp,
   onSetDockDraft,
@@ -41,6 +43,7 @@ export const SessionAiDock = ({
   onSetDockTab,
   payload,
 }: SessionAiDockProps) => {
+  const packetSummary = lastPacket?.preview.summary ?? composer?.preview.summary ?? '当前还没有发包上下文。'
   const turns = payload
     ? payload.analysis_cards
       .map((card) => {
@@ -65,7 +68,7 @@ export const SessionAiDock = ({
         <div>
           <p className="session-ai-dock__eyebrow">大 AI 深聊舱</p>
           <h2>AI Dock</h2>
-          <p>{composer?.preview.summary ?? '当前还没有发包上下文。'}</p>
+          <p>{packetSummary}</p>
         </div>
         <div className="action-row">
           {(['peek', 'medium', 'large'] as const).map((size) => (
@@ -113,6 +116,44 @@ export const SessionAiDock = ({
           </div>
 
           <div className="session-ai-dock__thread">
+            {dockTab === 'packet' && lastPacket ? (
+              <div className="session-ai-dock__packet-card">
+                <div className="session-ai-dock__meta">
+                  <strong>当前 Packet</strong>
+                  <span>{formatTime(lastPacket.sentAt)}</span>
+                </div>
+                <div className="session-ai-dock__packet-summary">
+                  <p>{lastPacket.preview.summary}</p>
+                  {lastPacket.followUpQuestion ? <p>追问：{lastPacket.followUpQuestion}</p> : null}
+                </div>
+                <div className="session-ai-dock__chips">
+                  <span className="status-pill">主图 {lastPacket.primaryScreenshotId ? 1 : 0}</span>
+                  <span className="status-pill">附图 {lastPacket.backgroundScreenshotIds.length}</span>
+                  <span className="status-pill">区间 {lastPacket.sourceEventIds.length}</span>
+                </div>
+                <div className="session-workbench__composer-attachments">
+                  {lastPacket.attachments.map((attachment) => (
+                    <article className="session-workbench__composer-attachment" key={attachment.id}>
+                      {attachment.previewDataUrl ? (
+                        <img
+                          alt={attachment.name}
+                          className="session-workbench__composer-attachment-thumb"
+                          src={attachment.previewDataUrl}
+                        />
+                      ) : (
+                        <div className="session-workbench__composer-attachment-icon">IMG</div>
+                      )}
+                      <div className="session-workbench__composer-attachment-meta">
+                        <strong>{attachment.name}</strong>
+                        <span>{attachment.resolvedModeLabel}</span>
+                        <p>{attachment.detail}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <pre className="session-ai-dock__packet-preview">{lastPacket.backgroundDraft || '当前没有额外背景说明。'}</pre>
+              </div>
+            ) : null}
             {turns.length > 0 ? (
               turns.map((turn) => (
                 <div className="session-ai-dock__turn" key={turn.aiRun.id}>
@@ -135,7 +176,7 @@ export const SessionAiDock = ({
                       {dockTab === 'full'
                         ? turn.card.deep_analysis_md
                         : dockTab === 'packet'
-                          ? composer?.backgroundDraft || summarizePacketPreview(turn.aiRun.prompt_preview)
+                          ? summarizePacketPreview(turn.aiRun.prompt_preview)
                           : turn.card.summary_short}
                     </div>
                   </article>

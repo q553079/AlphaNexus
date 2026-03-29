@@ -73,6 +73,9 @@ export const SessionWorkbenchPage = () => {
           activeAnnotations={workbench.selectedScreenshotAnnotations}
           adoptedAnnotationKeys={workbench.adoptedAnnotationKeys}
           analysisTray={workbench.analysisTray}
+          analysisTrayCompareScreenshot={workbench.analysisTrayCompareScreenshot}
+          analysisTrayPrimaryScreenshot={workbench.analysisTrayPrimaryScreenshot}
+          analysisTrayScreenshots={workbench.analysisTrayScreenshots}
           annotationInspectorItems={workbench.annotationInspectorItems}
           annotationSuggestions={workbench.annotationSuggestions}
           busy={workbench.busy}
@@ -82,6 +85,7 @@ export const SessionWorkbenchPage = () => {
           deletedScreenshots={workbench.deletedScreenshots}
           draftAnnotations={workbench.draftAnnotations}
           onAddScreenshotToAnalysisTray={workbench.addScreenshotToAnalysisTray}
+          onClearAnalysisTray={workbench.clearAnalysisTray}
           onCreateNoteBlock={(input) => workbench.handleCreateNoteBlock(input)}
           onAdoptAnchor={workbench.handleAdoptAnchorFromAnnotation}
           onAnnotationSuggestionAction={(suggestionId, action) => {
@@ -110,9 +114,13 @@ export const SessionWorkbenchPage = () => {
             void workbench.handleImportScreenshot()
           }}
           onOpenAiComposer={workbench.openAiComposer}
+          onMoveAnalysisTrayScreenshot={workbench.moveAnalysisTrayScreenshot}
           onQuickSendToAi={workbench.handleQuickSendToAi}
+          onRemoveScreenshotFromAnalysisTray={workbench.removeScreenshotFromAnalysisTray}
           onRunAnalysisForScreenshot={(screenshotId) => workbench.handleRunAnalysisForScreenshot(screenshotId)}
           onRunAnalysisFollowUpForScreenshot={(input) => workbench.handleRunAnalysisFollowUpForScreenshot(input)}
+          onSetCompareAnalysisTrayScreenshot={workbench.setCompareAnalysisTrayScreenshot}
+          onSetScreenshotStageViewMode={workbench.setScreenshotStageViewMode}
           onSnipScreenshot={() => {
             void workbench.handleOpenSnipCapture()
           }}
@@ -137,6 +145,7 @@ export const SessionWorkbenchPage = () => {
           onSelectScreenshot={workbench.selectScreenshot}
           payload={workbench.payload}
           screenshotGallery={workbench.screenshotGallery}
+          screenshotStageViewMode={workbench.screenshotStageViewMode}
           selectedEvent={workbench.selectedEvent}
           selectedScreenshot={workbench.selectedScreenshot}
         />
@@ -222,6 +231,7 @@ export const SessionWorkbenchPage = () => {
         dockDraft={workbench.aiDockDraft}
         dockState={workbench.aiDockState}
         dockTab={workbench.aiDockTab}
+        lastPacket={workbench.lastAiPacket}
         onOpenComposer={() => workbench.openAiComposer()}
         onSendFollowUp={() => {
           void workbench.handleSendAiDockFollowUp()

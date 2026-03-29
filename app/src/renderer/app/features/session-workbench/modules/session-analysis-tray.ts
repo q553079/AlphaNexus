@@ -19,11 +19,39 @@ const orderEventIds = (events: EventRecord[], eventIds: string[]) => {
     .filter((eventId) => lookup.has(eventId))
 }
 
+const filterExistingEventIds = (events: EventRecord[], eventIds: string[]) => {
+  const validIds = new Set(events.map((event) => event.id))
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const eventId of eventIds) {
+    if (!validIds.has(eventId) || seen.has(eventId)) {
+      continue
+    }
+    seen.add(eventId)
+    ordered.push(eventId)
+  }
+  return ordered
+}
+
 const orderScreenshotIds = (screenshots: ScreenshotRecord[], screenshotIds: string[]) => {
   const lookup = new Set(screenshotIds)
   return screenshots
     .map((screenshot) => screenshot.id)
     .filter((screenshotId) => lookup.has(screenshotId))
+}
+
+const filterExistingScreenshotIds = (screenshots: ScreenshotRecord[], screenshotIds: string[]) => {
+  const validIds = new Set(screenshots.map((screenshot) => screenshot.id))
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const screenshotId of screenshotIds) {
+    if (!validIds.has(screenshotId) || seen.has(screenshotId)) {
+      continue
+    }
+    seen.add(screenshotId)
+    ordered.push(screenshotId)
+  }
+  return ordered
 }
 
 const mergeOrderedIds = <T extends string>(currentIds: T[], nextIds: T[]) => {
@@ -58,8 +86,8 @@ export const normalizeAnalysisTrayState = (
     return currentState ?? createEmptyAnalysisTrayState()
   }
 
-  const screenshotIds = orderScreenshotIds(payload.screenshots, currentState.screenshotIds)
-  const eventIds = orderEventIds(payload.events, currentState.eventIds)
+  const screenshotIds = filterExistingScreenshotIds(payload.screenshots, currentState.screenshotIds)
+  const eventIds = filterExistingEventIds(payload.events, currentState.eventIds)
   const primaryScreenshotId = currentState.primaryScreenshotId && screenshotIds.includes(currentState.primaryScreenshotId)
     ? currentState.primaryScreenshotId
     : screenshotIds[0] ?? null
@@ -212,7 +240,7 @@ export const resolveAnalysisTrayScreenshots = (
     }
   }
 
-  const screenshots = orderScreenshotIds(payload.screenshots, trayState.screenshotIds)
+  const screenshots = filterExistingScreenshotIds(payload.screenshots, trayState.screenshotIds)
     .map((screenshotId) => payload.screenshots.find((screenshot) => screenshot.id === screenshotId) ?? null)
     .filter((screenshot): screenshot is ScreenshotRecord => screenshot != null)
   const primaryScreenshot = trayState.primaryScreenshotId
@@ -226,5 +254,39 @@ export const resolveAnalysisTrayScreenshots = (
     compareScreenshot,
     primaryScreenshot,
     screenshots,
+  }
+}
+
+const moveItem = <T extends string>(items: T[], itemId: T, direction: 'backward' | 'forward') => {
+  const currentIndex = items.indexOf(itemId)
+  if (currentIndex === -1) {
+    return items
+  }
+
+  const targetIndex = direction === 'backward'
+    ? Math.max(0, currentIndex - 1)
+    : Math.min(items.length - 1, currentIndex + 1)
+  if (currentIndex === targetIndex) {
+    return items
+  }
+
+  const nextItems = [...items]
+  const [item] = nextItems.splice(currentIndex, 1)
+  nextItems.splice(targetIndex, 0, item)
+  return nextItems
+}
+
+export const moveAnalysisTrayScreenshot = (
+  payload: SessionWorkbenchPayload,
+  currentState: AnalysisTrayState | null,
+  screenshotId: string,
+  direction: 'backward' | 'forward',
+): AnalysisTrayState => {
+  const normalizedState = normalizeAnalysisTrayState(payload, currentState)
+  const screenshotIds = moveItem(normalizedState.screenshotIds, screenshotId, direction)
+
+  return {
+    ...normalizedState,
+    screenshotIds,
   }
 }

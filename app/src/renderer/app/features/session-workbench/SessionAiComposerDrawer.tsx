@@ -17,6 +17,28 @@ type SessionAiComposerDrawerProps = {
 const resolvePreviewAsset = (screenshot: ScreenshotRecord) =>
   screenshot.annotated_asset_url ?? screenshot.raw_asset_url ?? screenshot.asset_url
 
+const imageModeLabels: Record<AiPacketComposerState['imageRegionMode'], string> = {
+  full: '整图',
+  selection: '局部',
+  'annotations-only': '标注层',
+  'full-with-highlight': '整图高亮',
+}
+
+const imageModeDescriptions: Record<AiPacketComposerState['imageRegionMode'], string> = {
+  full: '直接发送完整原图，最稳定。',
+  selection: '按当前标注包围盒裁切；如果当前没有标注，会回退为整图。',
+  'annotations-only': '只发标注图层；如果没有标注，会发空图层用于显式审计。',
+  'full-with-highlight': '发送整图并叠加标注高亮；如果没有标注，会回退为整图。',
+}
+
+const backgroundToggleLabels: Record<keyof AiPacketComposerState['backgroundToggles'], string> = {
+  includeCurrentNote: '当前笔记',
+  includeEventRangeSummary: '事件区间摘要',
+  includeTradeFacts: 'Trade facts',
+  includeSessionSummary: 'Session 摘要',
+  includePriorAi: '历史 AI',
+}
+
 export const SessionAiComposerDrawer = ({
   busy,
   composer,
@@ -112,20 +134,24 @@ export const SessionAiComposerDrawer = ({
       <section className="session-ai-composer__section">
         <div className="session-ai-composer__section-head">
           <strong>图像区域控制</strong>
+          <span className="status-pill">{imageModeLabels[composer.imageRegionMode]}</span>
         </div>
         <div className="session-ai-composer__mode-grid">
           {(['full', 'selection', 'annotations-only', 'full-with-highlight'] as const).map((mode) => (
             <button
-              className={`button ${composer.imageRegionMode === mode ? 'is-primary' : 'is-secondary'}`.trim()}
+              className={`button session-ai-composer__mode-button ${composer.imageRegionMode === mode ? 'is-primary' : 'is-secondary'}`.trim()}
               disabled={busy}
               key={mode}
               onClick={() => onSetImageRegionMode(mode)}
               type="button"
             >
-              {mode}
+              {imageModeLabels[mode]}
             </button>
           ))}
         </div>
+        <p className="session-ai-composer__helper-text">
+          {imageModeDescriptions[composer.imageRegionMode]}
+        </p>
       </section>
 
       <section className="session-ai-composer__section">
@@ -141,7 +167,7 @@ export const SessionAiComposerDrawer = ({
                 onChange={(event) => onSetBackgroundToggle(key, event.target.checked)}
                 type="checkbox"
               />
-              <span>{key}</span>
+              <span>{backgroundToggleLabels[key]}</span>
             </label>
           ))}
         </div>
@@ -166,6 +192,13 @@ export const SessionAiComposerDrawer = ({
           <strong>最终预览</strong>
         </div>
         <p className="workbench-text">{composer.preview.summary}</p>
+        <div className="session-ai-composer__helper-strip">
+          <span className="status-pill">主图 {composer.preview.primaryScreenshotCount}</span>
+          <span className="status-pill">附图 {composer.preview.backgroundScreenshotCount}</span>
+          <span className="status-pill">区间 {composer.preview.eventCount}</span>
+          <span className="status-pill">{imageModeLabels[composer.imageRegionMode]}</span>
+          <span className="status-pill">{composer.backgroundDraftDirty ? '背景草稿已编辑' : '背景草稿自动生成'}</span>
+        </div>
         <div className="session-ai-composer__preview-columns">
           <div>
             <strong>将发送</strong>

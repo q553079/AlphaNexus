@@ -22,11 +22,13 @@ import type {
   AiDockState,
   AiDockTab,
   AiPacketComposerState,
+  AiPacketDispatchRecord,
   AnalysisTrayState,
   EventSelectionState,
   ScreenshotStageViewMode,
   WorkbenchTab,
 } from './session-workbench-types'
+import { useSessionWorkbenchAiPacket } from './hooks/useSessionWorkbenchAiPacket'
 import { createSessionWorkbenchActions } from './hooks/useSessionWorkbenchActions'
 import { createSessionWorkbenchTargetActions, loadSessionWorkbenchMoveTargetOptions } from './hooks/useSessionWorkbenchTargetActions'
 import { createSessionWorkbenchTradeActions } from './hooks/useSessionWorkbenchTradeActions'
@@ -35,16 +37,10 @@ import {
   loadSessionWorkbenchGroundings,
 } from './modules/session-workbench-anchor-grounding'
 import {
-  buildAiAnalysisContextFromComposer,
-  buildAiDockContextChips,
-  buildAiPacketBackgroundDraft,
-  createAiPacketComposerState,
-  rebuildAiPacketComposerState,
-} from './modules/session-ai-packet'
-import {
   addScreenshotsToAnalysisTray,
   addSelectionToAnalysisTray as addSelectionToAnalysisTrayState,
   createEmptyAnalysisTrayState,
+  moveAnalysisTrayScreenshot,
   normalizeAnalysisTrayState,
   removeScreenshotFromAnalysisTray,
   resolveAnalysisTrayScreenshots,
@@ -88,6 +84,7 @@ export type SessionWorkbenchController = {
   aiDockDraft: string
   aiDockState: AiDockState
   aiDockTab: AiDockTab
+  lastAiPacket: AiPacketDispatchRecord | null
   busy: boolean
   composerSuggestions: ComposerSuggestion[]
   currentTrade: TradeRecord | null
@@ -210,6 +207,7 @@ export type SessionWorkbenchController = {
   openAiComposer: (input?: {
     primaryScreenshotId?: string | null
   }) => void
+  moveAnalysisTrayScreenshot: (screenshotId: string, direction: 'backward' | 'forward') => void
   refresh: (nextSessionId?: string) => Promise<void>
   removeAiComposerBackgroundScreenshot: (screenshotId: string) => void
   removeScreenshotFromAnalysisTray: (screenshotId: string) => void
@@ -250,13 +248,6 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
   const [activeReviewCaseId, setActiveReviewCaseId] = useState<string | null>(null)
   const [realtimeDraft, setRealtimeDraftState] = useState('')
   const [analysisTray, setAnalysisTrayState] = useState<AnalysisTrayState>(() => createEmptyAnalysisTrayState())
-  const [aiComposer, setAiComposerState] = useState<AiPacketComposerState | null>(null)
-  const [aiDockState, setAiDockState] = useState<AiDockState>({
-    expanded: false,
-    size: 'peek',
-  })
-  const [aiDockTab, setAiDockTabState] = useState<AiDockTab>('summary')
-  const [aiDockDraft, setAiDockDraftState] = useState('')
   const [screenshotStageViewMode, setScreenshotStageViewModeState] = useState<ScreenshotStageViewMode>('single')
   const [activeTab, setActiveTabState] = useState<WorkbenchTab>('view')
   const [busy, setBusy] = useState(false)
@@ -419,14 +410,6 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     primaryScreenshot: analysisTrayPrimaryScreenshot,
     screenshots: analysisTrayScreenshots,
   } = resolveAnalysisTrayScreenshots(payload, normalizedAnalysisTray)
-  const selectedEventIdsKey = selectedEventIds.join('|')
-  const selectedEventsKey = selectedEvents.map((event) => event.id).join('|')
-  const aiDockContextChips = aiComposer
-    ? buildAiDockContextChips({
-      composer: aiComposer,
-      selectedEventIds,
-    })
-    : []
   const activeReviewCase = reviewCases.find((reviewCase) => reviewCase.id === activeReviewCaseId) ?? null
 
   useEffect(() => {
@@ -442,35 +425,6 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
   useEffect(() => {
     setRealtimeDraftState(payload?.panels.my_realtime_view ?? '')
   }, [payload?.session.id, payload?.panels.my_realtime_view])
-
-  useEffect(() => {
-    if (!payload?.session.id) {
-      setAiComposerState(null)
-      setAiDockDraftState('')
-      return
-    }
-
-    setAiComposerState((current) => {
-      if (!current) {
-        return current
-      }
-
-      return rebuildAiPacketComposerState({
-        composer: current,
-        currentTrade,
-        payload,
-        realtimeDraft,
-        selectedEventIds,
-        selectedEvents,
-      })
-    })
-  }, [
-    currentTrade,
-    payload,
-    realtimeDraft,
-    selectedEventIdsKey,
-    selectedEventsKey,
-  ])
 
   useEffect(() => {
     setMoveTargetOptions(null)
@@ -643,6 +597,13 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     setAnalysisTray(createEmptyAnalysisTrayState())
   }
 
+  const moveAnalysisTrayScreenshotAction = (screenshotId: string, direction: 'backward' | 'forward') => {
+    if (!payloadRef.current) {
+      return
+    }
+    setAnalysisTray(moveAnalysisTrayScreenshot(payloadRef.current, analysisTrayRef.current, screenshotId, direction))
+  }
+
   const {
     handleAdoptAnchorFromAnnotation,
     handleAnnotationSuggestionAction,
@@ -713,266 +674,39 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     setBusy,
     setMessage,
   })
-
-  const buildComposerState = (input?: {
-    primaryScreenshotId?: string | null
-  }) => {
-    if (!payload) {
-      return null
-    }
-
-    const primaryScreenshot = input?.primaryScreenshotId
-      ? payload.screenshots.find((screenshot) => screenshot.id === input.primaryScreenshotId) ?? selectedScreenshot
-      : selectedScreenshot
-
-    const nextComposer = createAiPacketComposerState({
-      analysisTray: normalizedAnalysisTray,
-      currentTrade,
-      payload,
-      realtimeDraft,
-      selectedEventIds,
-      selectedEvents,
-      selectedScreenshot: primaryScreenshot,
-    })
-
-    return input?.primaryScreenshotId
-      ? rebuildAiPacketComposerState({
-        composer: {
-          ...nextComposer,
-          primaryScreenshotId: input.primaryScreenshotId,
-          backgroundScreenshotIds: normalizedAnalysisTray.screenshotIds.filter((screenshotId) => screenshotId !== input.primaryScreenshotId),
-        },
-        currentTrade,
-        payload,
-        realtimeDraft,
-        selectedEventIds,
-        selectedEvents,
-      })
-      : nextComposer
-  }
-
-  const uniqueOrderedComposerBackgrounds = (screenshotIds: string[]) => {
-    const seen = new Set<string>()
-    const ordered: string[] = []
-    for (const screenshotId of screenshotIds) {
-      if (!screenshotId || seen.has(screenshotId)) {
-        continue
-      }
-      seen.add(screenshotId)
-      ordered.push(screenshotId)
-    }
-    return ordered
-  }
-
-  const openAiComposer = (input?: {
-    primaryScreenshotId?: string | null
-  }) => {
-    const nextComposer = buildComposerState(input)
-    if (!nextComposer) {
-      return
-    }
-    setAiComposerState({
-      ...nextComposer,
-      open: true,
-    })
-  }
-
-  const closeAiComposer = () => {
-    setAiComposerState((current) => current ? {
-      ...current,
-      open: false,
-    } : null)
-  }
-
-  const setAiComposerBackgroundDraft = (value: string) => {
-    setAiComposerState((current) => current ? {
-      ...current,
-      backgroundDraft: value,
-      backgroundDraftDirty: true,
-    } : current)
-  }
-
-  const setAiComposerBackgroundToggle = (
-    key: keyof AiPacketComposerState['backgroundToggles'],
-    value: boolean,
-  ) => {
-    if (!payload || !aiComposer) {
-      return
-    }
-
-    setAiComposerState((current) => current
-      ? rebuildAiPacketComposerState({
-        composer: {
-          ...current,
-          backgroundToggles: {
-            ...current.backgroundToggles,
-            [key]: value,
-          },
-          backgroundDraft: current.backgroundDraftDirty
-            ? current.backgroundDraft
-            : buildAiPacketBackgroundDraft({
-              currentTrade,
-              payload,
-              realtimeDraft,
-              selectedEvents,
-              toggles: {
-                ...current.backgroundToggles,
-                [key]: value,
-              },
-            }),
-        },
-        currentTrade,
-        payload,
-        realtimeDraft,
-        selectedEventIds,
-        selectedEvents,
-      })
-      : current)
-  }
-
-  const setAiComposerImageRegionMode = (mode: AiPacketComposerState['imageRegionMode']) => {
-    setAiComposerState((current) => current ? {
-      ...current,
-      imageRegionMode: mode,
-    } : current)
-  }
-
-  const setAiComposerPrimaryScreenshot = (screenshotId: string) => {
-    setAiComposerState((current) => {
-      const currentPayload = payload ?? payloadRef.current
-      if (!current || !currentPayload) {
-        return current
-      }
-
-      return rebuildAiPacketComposerState({
-        composer: {
-          ...current,
-          primaryScreenshotId: screenshotId,
-          backgroundScreenshotIds: uniqueOrderedComposerBackgrounds([
-            current.primaryScreenshotId,
-            ...current.backgroundScreenshotIds,
-          ].filter((id): id is string => Boolean(id) && id !== screenshotId)),
-        },
-        currentTrade,
-        payload: currentPayload,
-        realtimeDraft,
-        selectedEventIds,
-        selectedEvents,
-      })
-    })
-  }
-
-  const removeAiComposerBackgroundScreenshot = (screenshotId: string) => {
-    setAiComposerState((current) => {
-      const currentPayload = payload ?? payloadRef.current
-      if (!current || !currentPayload) {
-        return current
-      }
-
-      return rebuildAiPacketComposerState({
-        composer: {
-          ...current,
-          backgroundScreenshotIds: current.backgroundScreenshotIds.filter((id) => id !== screenshotId),
-        },
-        currentTrade,
-        payload: currentPayload,
-        realtimeDraft,
-        selectedEventIds,
-        selectedEvents,
-      })
-    })
-  }
-
-  const setAiDockExpanded = (expanded: boolean) => {
-    setAiDockState((current) => ({
-      ...current,
-      expanded,
-    }))
-  }
-
-  const setAiDockSize = (size: AiDockState['size']) => {
-    setAiDockState((current) => ({
-      ...current,
-      size,
-      expanded: true,
-    }))
-  }
-
-  const handleQuickSendToAi = async(screenshotId?: string | null) => {
-    const nextComposer = buildComposerState({
-      primaryScreenshotId: screenshotId ?? selectedScreenshot?.id ?? normalizedAnalysisTray.primaryScreenshotId ?? null,
-    })
-    if (!nextComposer?.primaryScreenshotId) {
-      setMessage('当前没有可发送给 AI 的主图。')
-      return
-    }
-
-    setAiComposerState(nextComposer)
-    setAiDockState((current) => ({
-      ...current,
-      expanded: true,
-    }))
-    setAiDockTabState('summary')
-    await handleRunAnalysisWithContext({
-      screenshotId: nextComposer.primaryScreenshotId,
-      analysisContext: buildAiAnalysisContextFromComposer({
-        composer: nextComposer,
-        selectedEventIds,
-      }),
-      successMessagePrefix: '已快速发送：',
-    })
-  }
-
-  const handleSendAiComposer = async() => {
-    if (!aiComposer?.primaryScreenshotId) {
-      setMessage('请先选择主图。')
-      return
-    }
-
-    setAiDockState((current) => ({
-      ...current,
-      expanded: true,
-    }))
-    setAiDockTabState('packet')
-    await handleRunAnalysisWithContext({
-      screenshotId: aiComposer.primaryScreenshotId,
-      analysisContext: buildAiAnalysisContextFromComposer({
-        composer: aiComposer,
-        selectedEventIds,
-      }),
-      successMessagePrefix: '已按编辑包发送：',
-    })
-    closeAiComposer()
-  }
-
-  const handleSendAiDockFollowUp = async() => {
-    const question = aiDockDraft.trim()
-    const activeComposer = aiComposer ?? buildComposerState()
-    if (!question || !activeComposer?.primaryScreenshotId) {
-      return
-    }
-
-    const analysisContext = buildAiAnalysisContextFromComposer({
-      composer: activeComposer,
-      selectedEventIds,
-    })
-    analysisContext.background_note_md = [
-      activeComposer.backgroundDraft.trim(),
-      `继续追问：${question}`,
-    ].filter(Boolean).join('\n\n')
-
-    setAiComposerState(activeComposer)
-    setAiDockState((current) => ({
-      ...current,
-      expanded: true,
-    }))
-    await handleRunAnalysisWithContext({
-      screenshotId: activeComposer.primaryScreenshotId,
-      analysisContext,
-      successMessagePrefix: '已发送追问：',
-    })
-    setAiDockDraftState('')
-  }
+  const {
+    aiComposer,
+    aiDockContextChips,
+    aiDockDraft,
+    aiDockState,
+    aiDockTab,
+    closeAiComposer,
+    handleQuickSendToAi,
+    handleSendAiComposer,
+    handleSendAiDockFollowUp,
+    lastAiPacket,
+    openAiComposer,
+    removeAiComposerBackgroundScreenshot,
+    setAiComposerBackgroundDraft,
+    setAiComposerBackgroundToggle,
+    setAiComposerImageRegionMode,
+    setAiComposerPrimaryScreenshot,
+    setAiDockDraft,
+    setAiDockExpanded,
+    setAiDockSize,
+    setAiDockTab,
+  } = useSessionWorkbenchAiPacket({
+    analysisTray: normalizedAnalysisTray,
+    currentTrade,
+    draftAnnotations,
+    payload,
+    realtimeDraft,
+    selectedEventIds,
+    selectedEvents,
+    selectedScreenshot,
+    setMessage,
+    handleRunAnalysisWithContext,
+  })
 
   const handleSaveReviewCase = async() => {
     if (!payload) {
@@ -1037,11 +771,8 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
       setAnalysisTray(restoredState.analysisTray)
       setSelectedScreenshotId(restoredState.selectedScreenshotId)
       setActiveReviewCaseId(reviewCase.id)
-      setAiDockState((current) => ({
-        ...current,
-        expanded: true,
-      }))
-      setAiDockTabState('summary')
+      setAiDockExpanded(true)
+      setAiDockTab('summary')
       setMessage(`已打开 Case：${reviewCase.title}`)
     } catch (error) {
       setMessage(error instanceof Error ? `打开 Case 失败：${error.message}` : '打开 Case 失败。')
@@ -1060,6 +791,7 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     aiDockDraft,
     aiDockState,
     aiDockTab,
+    lastAiPacket,
     analysisCard,
     analysisTray: normalizedAnalysisTray,
     analysisTrayCompareScreenshot,
@@ -1142,6 +874,7 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleSetCurrentContext: handleSetCurrentTarget,
     handleSetAnchorStatus,
     openAiComposer,
+    moveAnalysisTrayScreenshot: moveAnalysisTrayScreenshotAction,
     refresh,
     removeAiComposerBackgroundScreenshot,
     removeScreenshotFromAnalysisTray: removeScreenshotFromAnalysisTrayAction,
@@ -1151,10 +884,10 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     setAiComposerBackgroundToggle,
     setAiComposerImageRegionMode,
     setAiComposerPrimaryScreenshot,
-    setAiDockDraft: setAiDockDraftState,
+    setAiDockDraft,
     setAiDockExpanded,
     setAiDockSize,
-    setAiDockTab: setAiDockTabState,
+    setAiDockTab,
     setCompareAnalysisTrayScreenshot: setCompareAnalysisTrayScreenshotAction,
     setActiveTab: setActiveTabState,
     setDraftAnnotations: setDraftAnnotationsState,

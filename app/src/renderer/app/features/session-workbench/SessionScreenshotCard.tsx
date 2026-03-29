@@ -53,6 +53,7 @@ type SessionScreenshotCardProps = {
     title: string
     content_md: string
   }) => Promise<ContentBlockRecord | null>
+  presentation?: 'full' | 'detail'
   screenshot: ScreenshotRecord
   screenshotTargetOption: CurrentTargetOption | null
   screenshotTargetPayload: CurrentTargetOptionsPayload | null
@@ -195,6 +196,7 @@ export const SessionScreenshotCard = ({
   onSelectScreenshot,
   onSetPrimaryAnalysisTrayScreenshot,
   onUpdateNoteBlock,
+  presentation = 'full',
   screenshot,
   screenshotTargetOption,
   screenshotTargetPayload,
@@ -224,6 +226,7 @@ export const SessionScreenshotCard = ({
   const persistedTitle = resolveCustomImageTitle(noteBlock)
   const isDirty = noteDraft !== (noteBlock?.content_md ?? '') || titleDraft !== persistedTitle
   const noteSourceEventId = selectedEvent?.id ?? screenshot.event_id
+  const shouldShowInlinePreview = presentation === 'full'
 
   useEffect(() => {
     if (isDirty) {
@@ -292,7 +295,7 @@ export const SessionScreenshotCard = ({
   }
 
   return (
-    <article className={`session-workbench__media-item ${isSelected ? 'is-active' : ''}`.trim()}>
+    <article className={`session-workbench__media-item ${isSelected ? 'is-active' : ''} ${presentation === 'detail' ? 'is-detail' : ''}`.trim()}>
       <div className="session-workbench__media-header">
         <div className="session-workbench__media-heading">
           <p className="session-workbench__media-kicker">
@@ -313,18 +316,25 @@ export const SessionScreenshotCard = ({
 
       {isSelected ? (
         <>
-          <button
-            className="session-workbench__image-button session-workbench__media-preview is-selected"
-            onClick={() => onSelectScreenshot(screenshot.id)}
-            onDoubleClick={() => setLightboxOpen(true)}
-            type="button"
-          >
-            <LazyImage
-              alt={headerTitle}
-              aspectRatio={`${screenshot.width} / ${screenshot.height}`}
-              src={previewSrc}
-            />
-          </button>
+          {shouldShowInlinePreview ? (
+            <button
+              className="session-workbench__image-button session-workbench__media-preview is-selected"
+              onClick={() => onSelectScreenshot(screenshot.id)}
+              onDoubleClick={() => setLightboxOpen(true)}
+              type="button"
+            >
+              <LazyImage
+                alt={headerTitle}
+                aspectRatio={`${screenshot.width} / ${screenshot.height}`}
+                src={previewSrc}
+              />
+            </button>
+          ) : (
+            <div className="session-workbench__media-detail-callout">
+              <span className="status-pill">主舞台展示中</span>
+              <p>图像本体已在上方主舞台显示；这里聚焦于标注、笔记、AI 追问和挂载调整。</p>
+            </div>
+          )}
 
           <div className="session-workbench__canvas-toolbar">
             {screenshotTargetPayload ? (
@@ -390,6 +400,35 @@ export const SessionScreenshotCard = ({
               </button>
             </div>
           </div>
+
+          {presentation === 'detail' ? (
+            <section className="session-workbench__media-editor">
+              <div className="session-workbench__media-editor-header">
+                <div>
+                  <strong>工作台内标注编辑</strong>
+                  <p>当前图的标注草稿直接在这里调整，保存后仍沿用原有截图标注链路。</p>
+                </div>
+                <div className="action-row">
+                  <span className="status-pill">草稿 {draftAnnotations.length}</span>
+                  {candidateAnnotations.length > 0 ? <span className="status-pill">候选 {candidateAnnotations.length}</span> : null}
+                  <button className="button is-secondary" disabled={busy} onClick={() => setLightboxOpen(true)} type="button">
+                    全屏细调
+                  </button>
+                  <button className="button is-primary" disabled={busy} onClick={onSaveAnnotations} type="button">
+                    保存标注
+                  </button>
+                </div>
+              </div>
+              <div className="session-workbench__media-editor-surface">
+                <AnnotationCanvas
+                  annotations={draftAnnotations}
+                  candidateAnnotations={candidateAnnotations}
+                  onChange={onDraftAnnotationsChange}
+                  screenshot={screenshot}
+                />
+              </div>
+            </section>
+          ) : null}
 
           <div className="session-workbench__media-columns">
             <section className="session-workbench__media-note">

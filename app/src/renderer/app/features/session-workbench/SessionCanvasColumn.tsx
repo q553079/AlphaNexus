@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AiRunExecutionResult, AiAnalysisAttachment } from '@shared/ai/contracts'
 import { SectionCard } from '@app/components/SectionCard'
-import { LazyImage } from '@app/components/LazyImage'
 import { AnnotationMetadataEditor } from '@app/features/annotation/AnnotationMetadataEditor'
 import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
 import { AnchorAnnotationInspector } from '@app/features/anchors'
@@ -18,16 +17,21 @@ import type { AnnotationRecord, ContentBlockRecord, ScreenshotRecord } from '@sh
 import type { EventRecord } from '@shared/contracts/event'
 import type { TradeRecord } from '@shared/contracts/trade'
 import type { CurrentTargetOption, CurrentTargetOptionsPayload, SessionWorkbenchPayload } from '@shared/contracts/workbench'
-import { SessionImageLightbox } from './SessionImageLightbox'
+import { SessionCanvasAnalysisTray } from './SessionCanvasAnalysisTray'
+import { SessionCanvasFilmstrip } from './SessionCanvasFilmstrip'
+import { SessionCanvasStage } from './SessionCanvasStage'
 import { SessionScreenshotCard } from './SessionScreenshotCard'
 import { SessionStoryStack } from './SessionStoryStack'
-import type { AnalysisTrayState } from './session-workbench-types'
+import type { AnalysisTrayState, ScreenshotStageViewMode } from './session-workbench-types'
 import type { ScreenshotAiReplyRecord } from './modules/session-screenshot-ai-thread'
 import type { ScreenshotGalleryState } from './modules/session-screenshot-gallery'
 
 type SessionCanvasColumnProps = {
   activeContentBlocks: ContentBlockRecord[]
   analysisTray: AnalysisTrayState
+  analysisTrayCompareScreenshot: ScreenshotRecord | null
+  analysisTrayPrimaryScreenshot: ScreenshotRecord | null
+  analysisTrayScreenshots: ScreenshotRecord[]
   adoptedAnnotationKeys: Set<string>
   activeAnnotations: AnnotationRecord[]
   annotationInspectorItems: AnnotationInspectorItem[]
@@ -39,6 +43,7 @@ type SessionCanvasColumnProps = {
   deletedScreenshots: ScreenshotRecord[]
   draftAnnotations: DraftAnnotation[]
   onAddScreenshotToAnalysisTray: (screenshotId: string) => void
+  onClearAnalysisTray: () => void
   onCreateNoteBlock: (input: {
     event_id: string
     title?: string
@@ -54,16 +59,20 @@ type SessionCanvasColumnProps = {
   onDeleteScreenshot: (screenshotId: string) => void
   onDraftAnnotationsChange: (annotations: DraftAnnotation[]) => void
   onImportScreenshot: () => void
+  onMoveAnalysisTrayScreenshot: (screenshotId: string, direction: 'backward' | 'forward') => void
   onOpenAiComposer: (input?: {
     primaryScreenshotId?: string | null
   }) => void
   onQuickSendToAi: (screenshotId?: string | null) => Promise<void>
+  onRemoveScreenshotFromAnalysisTray: (screenshotId: string) => void
   onRunAnalysisForScreenshot: (screenshotId: string) => Promise<AiRunExecutionResult | null>
   onRunAnalysisFollowUpForScreenshot: (input: {
     attachments?: AiAnalysisAttachment[]
     backgroundNoteMd: string
     screenshotId: string
   }) => Promise<AiRunExecutionResult | null>
+  onSetCompareAnalysisTrayScreenshot: (screenshotId: string | null) => void
+  onSetScreenshotStageViewMode: (mode: ScreenshotStageViewMode) => void
   onSnipScreenshot: () => void
   onRestoreAnnotation: (annotationId: string) => void
   onRestoreBlock: (block: ContentBlockRecord) => void
@@ -88,6 +97,7 @@ type SessionCanvasColumnProps = {
   onSelectScreenshot: (screenshotId: string) => void
   payload: SessionWorkbenchPayload
   screenshotGallery: ScreenshotGalleryState
+  screenshotStageViewMode: ScreenshotStageViewMode
   selectedEvent: EventRecord | null
   selectedScreenshot: ScreenshotRecord | null
 }
@@ -109,9 +119,6 @@ const buildScreenshotTargetPayload = (targetPayload: CurrentTargetOptionsPayload
     },
   }
 }
-
-const resolveScreenshotPreviewAsset = (screenshot: ScreenshotRecord) =>
-  screenshot.annotated_asset_url ?? screenshot.raw_asset_url ?? screenshot.asset_url
 
 const resolveEventScopedNoteBlock = (
   blocks: ContentBlockRecord[],
@@ -152,6 +159,9 @@ const resolveScreenshotAiReply = (
 export const SessionCanvasColumn = ({
   activeContentBlocks,
   analysisTray,
+  analysisTrayCompareScreenshot,
+  analysisTrayPrimaryScreenshot,
+  analysisTrayScreenshots,
   adoptedAnnotationKeys,
   activeAnnotations,
   annotationInspectorItems,
@@ -163,6 +173,7 @@ export const SessionCanvasColumn = ({
   deletedScreenshots,
   draftAnnotations,
   onAddScreenshotToAnalysisTray,
+  onClearAnalysisTray,
   onAdoptAnchor,
   onAnnotationSuggestionAction,
   onDeleteAnnotation,
@@ -172,10 +183,14 @@ export const SessionCanvasColumn = ({
   onDeleteScreenshot,
   onDraftAnnotationsChange,
   onImportScreenshot,
+  onMoveAnalysisTrayScreenshot,
   onOpenAiComposer,
   onQuickSendToAi,
+  onRemoveScreenshotFromAnalysisTray,
   onRunAnalysisForScreenshot,
   onRunAnalysisFollowUpForScreenshot,
+  onSetCompareAnalysisTrayScreenshot,
+  onSetScreenshotStageViewMode,
   onSnipScreenshot,
   onRestoreAnnotation,
   onRestoreBlock,
@@ -190,16 +205,32 @@ export const SessionCanvasColumn = ({
   onSelectScreenshot,
   payload,
   screenshotGallery,
+  screenshotStageViewMode,
   selectedEvent,
   selectedScreenshot,
 }: SessionCanvasColumnProps) => {
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
-  const [lightboxImage, setLightboxImage] = useState<{
-    alt: string
-    src: string | null
-    title: string
-  } | null>(null)
   const screenshotTargetPayload = buildScreenshotTargetPayload(moveTargetOptions)
+  const stagePrimaryScreenshot = selectedScreenshot ?? analysisTrayPrimaryScreenshot ?? screenshotGallery.screenshots[0] ?? null
+  const stageEvent = stagePrimaryScreenshot
+    ? payload.events.find((event) => event.id === stagePrimaryScreenshot.event_id)
+      ?? payload.events.find((event) => event.screenshot_id === stagePrimaryScreenshot.id)
+      ?? null
+    : selectedEvent
+  const compareScreenshot = analysisTrayCompareScreenshot
+    ?? (() => {
+      if (!stagePrimaryScreenshot || !screenshotGallery.compare_pair) {
+        return null
+      }
+      const { setup, exit } = screenshotGallery.compare_pair
+      if (setup && stagePrimaryScreenshot.id !== setup.id) {
+        return setup
+      }
+      if (exit && stagePrimaryScreenshot.id !== exit.id) {
+        return exit
+      }
+      return null
+    })()
   const selectedScreenshotTargetOption = screenshotTargetPayload?.options.find((option) => {
     if (screenshotGallery.target_trade_id) {
       return option.target_kind === 'trade' && option.trade_id === screenshotGallery.target_trade_id
@@ -225,6 +256,11 @@ export const SessionCanvasColumn = ({
     })),
     [annotationSuggestions],
   )
+  const stageScreenshotIndex = stagePrimaryScreenshot
+    ? screenshotGallery.screenshots.findIndex((screenshot) => screenshot.id === stagePrimaryScreenshot.id)
+    : -1
+  const noteBlock = resolveEventScopedNoteBlock(activeContentBlocks, stageEvent?.id ?? stagePrimaryScreenshot?.event_id)
+  const aiReplies = stagePrimaryScreenshot ? resolveScreenshotAiReply(payload, stagePrimaryScreenshot) : []
   const selectedAnnotation = activeAnnotations.find((annotation) => annotation.id === selectedAnnotationId) ?? activeAnnotations[0] ?? null
   const hasAnnotationMaintenance = annotationInspectorItems.length > 0
     || activeAnnotations.length > 0
@@ -241,7 +277,7 @@ export const SessionCanvasColumn = ({
 
   return (
     <section className="session-workbench__column session-workbench__column--canvas">
-      <SectionCard title="绘图工作区" subtitle="事件流里的图会顺着往下排，点到哪张就在那张图上继续画。">
+      <SectionCard title="证据画布" subtitle="中间列现在围绕主舞台、胶片流和 analysis tray 展开，不再把截图按顺序长堆叠。">
         <CapturePanel
           annotations={draftAnnotations}
           busy={busy}
@@ -251,20 +287,21 @@ export const SessionCanvasColumn = ({
           screenshot={selectedScreenshot}
           showSaveButton={false}
         />
+
         <div className="session-workbench__ai-packet-bar">
           <div className="session-workbench__ai-packet-meta">
             <strong>AI 发包</strong>
             <p>
-              当前主图：{selectedScreenshot?.caption ?? selectedScreenshot?.id ?? '未选择'} ·
+              当前主图：{stagePrimaryScreenshot?.caption ?? stagePrimaryScreenshot?.id ?? '未选择'} ·
               托盘附图 {analysisTray.screenshotIds.length}
             </p>
           </div>
           <div className="action-row">
             <button
               className="button is-secondary"
-              disabled={busy || !selectedScreenshot}
+              disabled={busy || !stagePrimaryScreenshot}
               onClick={() => {
-                void onQuickSendToAi(selectedScreenshot?.id ?? null)
+                void onQuickSendToAi(stagePrimaryScreenshot?.id ?? null)
               }}
               type="button"
             >
@@ -274,7 +311,7 @@ export const SessionCanvasColumn = ({
               className="button is-primary"
               disabled={busy}
               onClick={() => onOpenAiComposer({
-                primaryScreenshotId: selectedScreenshot?.id ?? null,
+                primaryScreenshotId: stagePrimaryScreenshot?.id ?? null,
               })}
               type="button"
             >
@@ -282,54 +319,93 @@ export const SessionCanvasColumn = ({
             </button>
           </div>
         </div>
-        {screenshotGallery.screenshots.length > 0 ? (
-          <div className="session-workbench__media-stack">
-            {screenshotGallery.screenshots.map((screenshot, index) => {
-              const isSelected = selectedScreenshot?.id === screenshot.id
-              const screenshotEvent = payload.events.find((event) => event.id === screenshot.event_id)
-                ?? payload.events.find((event) => event.screenshot_id === screenshot.id)
-                ?? null
-              const noteBlock = resolveEventScopedNoteBlock(activeContentBlocks, screenshotEvent?.id ?? screenshot.event_id)
-              const aiReplies = resolveScreenshotAiReply(payload, screenshot)
-              return (
-                <SessionScreenshotCard
-                  aiReplies={aiReplies}
-                  busy={busy}
-                  candidateAnnotations={candidateAnnotations}
-                  draftAnnotations={draftAnnotations}
-                  index={index}
-                  inAnalysisTray={analysisTray.screenshotIds.includes(screenshot.id)}
-                  key={screenshot.id}
-                  isSelected={isSelected}
-                  isTrayPrimary={analysisTray.primaryScreenshotId === screenshot.id}
-                  noteBlock={noteBlock}
-                  onAddToAnalysisTray={onAddScreenshotToAnalysisTray}
-                  onCreateNoteBlock={onCreateNoteBlock}
-                  onDeleteAiRecord={onDeleteAiRecord}
-                  onDeleteScreenshot={onDeleteScreenshot}
-                  onDraftAnnotationsChange={onDraftAnnotationsChange}
-                  onMoveScreenshot={onMoveScreenshot}
-                  onOpenAiComposer={(screenshotId) => onOpenAiComposer({
-                    primaryScreenshotId: screenshotId,
-                  })}
-                  onQuickSendToAi={onQuickSendToAi}
-                  onRunAnalysisForScreenshot={onRunAnalysisForScreenshot}
-                  onRunAnalysisFollowUpForScreenshot={onRunAnalysisFollowUpForScreenshot}
-                  onSaveAnnotations={onSaveAnnotations}
-                  onSelectScreenshot={onSelectScreenshot}
-                  onSetPrimaryAnalysisTrayScreenshot={onSetPrimaryAnalysisTrayScreenshot}
-                  onUpdateNoteBlock={onUpdateNoteBlock}
-                  screenshot={screenshot}
-                  screenshotTargetOption={selectedScreenshotTargetOption}
-                  screenshotTargetPayload={screenshotTargetPayload}
-                  selectedEvent={screenshotEvent}
-                />
-              )
-            })}
-          </div>
+
+        <SessionCanvasStage
+          analysisTray={analysisTray}
+          compareScreenshot={compareScreenshot}
+          primaryScreenshot={stagePrimaryScreenshot}
+          scopeLabel={screenshotGallery.scope_label}
+          trayScreenshots={analysisTrayScreenshots}
+          viewMode={screenshotStageViewMode}
+          onAddPrimaryToTray={onAddScreenshotToAnalysisTray}
+          onOpenAiComposer={onOpenAiComposer}
+          onQuickSendToAi={onQuickSendToAi}
+          onSelectScreenshot={onSelectScreenshot}
+          onSetCompareScreenshot={onSetCompareAnalysisTrayScreenshot}
+          onSetPrimaryAnalysisTrayScreenshot={onSetPrimaryAnalysisTrayScreenshot}
+          onSetViewMode={onSetScreenshotStageViewMode}
+        />
+
+        <SessionCanvasFilmstrip
+          selectedScreenshotId={stagePrimaryScreenshot?.id ?? null}
+          screenshots={screenshotGallery.screenshots}
+          trayPrimaryScreenshotId={analysisTray.primaryScreenshotId}
+          trayScreenshotIds={analysisTray.screenshotIds}
+          onAddToTray={onAddScreenshotToAnalysisTray}
+          onSelectScreenshot={onSelectScreenshot}
+        />
+
+        <SessionCanvasAnalysisTray
+          compareScreenshotId={analysisTray.compareScreenshotId}
+          primaryScreenshotId={analysisTray.primaryScreenshotId}
+          screenshots={analysisTrayScreenshots}
+          onClear={onClearAnalysisTray}
+          onMove={onMoveAnalysisTrayScreenshot}
+          onOpenComposer={() => onOpenAiComposer({
+            primaryScreenshotId: stagePrimaryScreenshot?.id ?? analysisTray.primaryScreenshotId ?? null,
+          })}
+          onRemove={onRemoveScreenshotFromAnalysisTray}
+          onSelectScreenshot={onSelectScreenshot}
+          onSetCompare={onSetCompareAnalysisTrayScreenshot}
+          onSetPrimary={onSetPrimaryAnalysisTrayScreenshot}
+        />
+
+        {stagePrimaryScreenshot ? (
+          <section className="session-workbench__canvas-detail">
+            <div className="session-workbench__canvas-detail-header">
+              <div>
+                <strong>当前图详情与编辑</strong>
+                <p>主舞台负责大图浏览，这里保留标注、笔记、挂载调整和 AI 跟进，不再重复渲染主图。</p>
+              </div>
+              <span className="status-pill">Detail Panel</span>
+            </div>
+            <SessionScreenshotCard
+              aiReplies={aiReplies}
+              busy={busy}
+              candidateAnnotations={candidateAnnotations}
+              draftAnnotations={draftAnnotations}
+              index={Math.max(stageScreenshotIndex, 0)}
+              inAnalysisTray={analysisTray.screenshotIds.includes(stagePrimaryScreenshot.id)}
+              isSelected
+              isTrayPrimary={analysisTray.primaryScreenshotId === stagePrimaryScreenshot.id}
+              noteBlock={noteBlock}
+              onAddToAnalysisTray={onAddScreenshotToAnalysisTray}
+              onCreateNoteBlock={onCreateNoteBlock}
+              onDeleteAiRecord={onDeleteAiRecord}
+              onDeleteScreenshot={onDeleteScreenshot}
+              onDraftAnnotationsChange={onDraftAnnotationsChange}
+              onMoveScreenshot={onMoveScreenshot}
+              onOpenAiComposer={(screenshotId) => onOpenAiComposer({
+                primaryScreenshotId: screenshotId,
+              })}
+              onQuickSendToAi={onQuickSendToAi}
+              onRunAnalysisForScreenshot={onRunAnalysisForScreenshot}
+              onRunAnalysisFollowUpForScreenshot={onRunAnalysisFollowUpForScreenshot}
+              onSaveAnnotations={onSaveAnnotations}
+              onSelectScreenshot={onSelectScreenshot}
+              onSetPrimaryAnalysisTrayScreenshot={onSetPrimaryAnalysisTrayScreenshot}
+              onUpdateNoteBlock={onUpdateNoteBlock}
+              presentation="detail"
+              screenshot={stagePrimaryScreenshot}
+              screenshotTargetOption={selectedScreenshotTargetOption}
+              screenshotTargetPayload={screenshotTargetPayload}
+              selectedEvent={stageEvent}
+            />
+          </section>
         ) : (
-          <div className="session-workbench__canvas-empty">先在左侧选中一个事件或截图，再开始画图和整理这一段事件流。</div>
+          <div className="session-workbench__canvas-empty">先在左侧选中一个事件或截图，再开始画图和整理这一段证据流。</div>
         )}
+
         {annotationSuggestions.length > 0 ? (
           <div className="session-workbench__suggestion-layer">
             <AnnotationSuggestionsPanel
@@ -341,47 +417,7 @@ export const SessionCanvasColumn = ({
             />
           </div>
         ) : null}
-        {screenshotGallery.compare_pair?.setup && screenshotGallery.compare_pair.exit ? (
-          <div className="session-workbench__content-blocks">
-            <p className="session-workbench__deleted-label">开仓图 / 离场图基础对照</p>
-            <div className="trade-thread-media">
-              {[{
-                title: '开仓图',
-                screenshot: screenshotGallery.compare_pair.setup,
-              }, {
-                title: '离场图',
-                screenshot: screenshotGallery.compare_pair.exit,
-              }].map((item) => (
-                <article className="trade-thread-media__stage" key={item.title}>
-                  <div className="trade-thread-media__meta">
-                    <div>
-                      <p className="trade-thread-media__eyebrow">{item.title}</p>
-                      <h3>{item.screenshot.caption ?? `${item.title} 图`}</h3>
-                      <p>{item.screenshot.created_at}</p>
-                    </div>
-                  </div>
-                  <div className="trade-thread-media__hero">
-                    <button
-                      className="session-workbench__image-button"
-                      onClick={() => setLightboxImage({
-                        alt: item.screenshot.caption ?? item.title,
-                        src: resolveScreenshotPreviewAsset(item.screenshot),
-                        title: item.screenshot.caption ?? `${item.title} 图`,
-                      })}
-                      type="button"
-                    >
-                      <LazyImage
-                        alt={item.screenshot.caption ?? item.title}
-                        aspectRatio="16 / 9"
-                        src={resolveScreenshotPreviewAsset(item.screenshot)}
-                      />
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        ) : null}
+
         <SessionStoryStack
           activeContentBlocks={activeContentBlocks}
           busy={busy}
@@ -390,21 +426,13 @@ export const SessionCanvasColumn = ({
           onDeleteBlock={onDeleteBlock}
           onMoveContentBlock={onMoveContentBlock}
           payload={payload}
-          selectedEvent={selectedEvent}
-          selectedScreenshot={selectedScreenshot}
+          selectedEvent={stageEvent}
+          selectedScreenshot={stagePrimaryScreenshot}
         />
       </SectionCard>
 
-      <SessionImageLightbox
-        imageAlt={lightboxImage?.alt ?? ''}
-        imageSrc={lightboxImage?.src ?? null}
-        onClose={() => setLightboxImage(null)}
-        open={Boolean(lightboxImage)}
-        title={lightboxImage?.title ?? ''}
-      />
-
       {hasAnnotationMaintenance ? (
-        <SectionCard title="图上标注（按需展开）" subtitle="平时直接在图上处理；只有要改标题、升级记忆或恢复删除内容时再展开。">
+        <SectionCard title="图上标注（按需展开）" subtitle="平时在主图上处理；只有要深改标注信息或恢复删除内容时再展开。">
           <details className="session-workbench__annotation-drawer">
             <summary className="session-workbench__annotation-drawer-summary">
               <div>

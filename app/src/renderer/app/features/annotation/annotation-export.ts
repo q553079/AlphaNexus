@@ -1,12 +1,13 @@
 import type { CaptureSelection } from '@shared/capture/contracts'
 import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
+import type { AnnotationRecord } from '@shared/contracts/content'
 import {
   decodeBrushGeometry,
   getFibRetracementLevels,
   normalizeAnnotationBounds,
 } from '@app/features/annotation/annotation-geometry'
 
-type AnnotationLike = PendingDraftAnnotation | DraftAnnotation
+type AnnotationLike = PendingDraftAnnotation | DraftAnnotation | AnnotationRecord
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
@@ -169,6 +170,56 @@ const drawAnnotation = (
   context.restore()
 }
 
+const drawAnnotations = (
+  context: CanvasRenderingContext2D,
+  annotations: AnnotationLike[],
+  input?: {
+    offsetX?: number
+    offsetY?: number
+  },
+) => {
+  const offsetX = input?.offsetX ?? 0
+  const offsetY = input?.offsetY ?? 0
+
+  context.save()
+  context.translate(-offsetX, -offsetY)
+  for (const annotation of annotations) {
+    drawAnnotation(context, annotation)
+  }
+  context.restore()
+}
+
+export const renderImageDataUrl = async(input: {
+  image_url: string
+  source_width: number
+  source_height: number
+  selection?: CaptureSelection
+}) => {
+  const image = await loadImageElement(input.image_url)
+  const cropRect = toCropRect(input.selection, input.source_width, input.source_height)
+  const canvas = document.createElement('canvas')
+  canvas.width = cropRect.width
+  canvas.height = cropRect.height
+  const context = canvas.getContext('2d')
+  if (!context) {
+    throw new Error('浏览器当前无法创建图像导出画布。')
+  }
+
+  context.drawImage(
+    image,
+    cropRect.x,
+    cropRect.y,
+    cropRect.width,
+    cropRect.height,
+    0,
+    0,
+    cropRect.width,
+    cropRect.height,
+  )
+
+  return canvas.toDataURL('image/png')
+}
+
 export const renderAnnotatedImageDataUrl = async(input: {
   image_url: string
   source_width: number
@@ -198,9 +249,33 @@ export const renderAnnotatedImageDataUrl = async(input: {
     cropRect.height,
   )
 
-  for (const annotation of input.annotations) {
-    drawAnnotation(context, annotation)
+  drawAnnotations(context, input.annotations, {
+    offsetX: cropRect.x,
+    offsetY: cropRect.y,
+  })
+
+  return canvas.toDataURL('image/png')
+}
+
+export const renderAnnotationLayerDataUrl = async(input: {
+  source_width: number
+  source_height: number
+  selection?: CaptureSelection
+  annotations: AnnotationLike[]
+}) => {
+  const cropRect = toCropRect(input.selection, input.source_width, input.source_height)
+  const canvas = document.createElement('canvas')
+  canvas.width = cropRect.width
+  canvas.height = cropRect.height
+  const context = canvas.getContext('2d')
+  if (!context) {
+    throw new Error('浏览器当前无法创建标注图层导出画布。')
   }
+
+  drawAnnotations(context, input.annotations, {
+    offsetX: cropRect.x,
+    offsetY: cropRect.y,
+  })
 
   return canvas.toDataURL('image/png')
 }

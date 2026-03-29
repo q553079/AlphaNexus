@@ -390,6 +390,47 @@ const buildBackgroundScreenshotContexts = (screenshots: ScreenshotRecord[]) => {
   ].join('\n')
 }
 
+const countInlinePacketImageAttachments = (analysisContext?: {
+  attachments?: Array<{
+    kind?: string
+    data_url?: string
+  }>
+}) => (analysisContext?.attachments ?? []).filter((attachment) =>
+  attachment.kind === 'image'
+  && typeof attachment.data_url === 'string'
+  && attachment.data_url.trim().length > 0).length
+
+const buildPacketAuditSection = (analysisContext?: {
+  attachments?: Array<{
+    kind?: string
+    data_url?: string
+  }>
+  background_note_md?: string
+  background_toggles?: Record<string, boolean>
+  image_region_mode?: string
+  packet_preview?: {
+    summary?: string
+  }
+}) => {
+  if (!analysisContext) {
+    return ''
+  }
+
+  const enabledBackgrounds = Object.entries(analysisContext.background_toggles ?? {})
+    .filter(([, enabled]) => enabled)
+    .map(([key]) => key)
+  const lines = [
+    'AI packet audit:',
+    `- image_region_mode=${analysisContext.image_region_mode ?? 'full'}`,
+    `- inline_image_attachments=${countInlinePacketImageAttachments(analysisContext)}`,
+    `- packet_preview=${analysisContext.packet_preview?.summary ?? 'n/a'}`,
+    `- enabled_background_items=${enabledBackgrounds.length > 0 ? enabledBackgrounds.join(', ') : 'none'}`,
+    `- background_note_present=${analysisContext.background_note_md?.trim() ? 'yes' : 'no'}`,
+  ]
+
+  return lines.join('\n')
+}
+
 const mergeUniqueScreenshots = (...groups: ScreenshotRecord[][]) => {
   const merged = new Map<string, ScreenshotRecord>()
   for (const group of groups) {
@@ -405,6 +446,18 @@ const mergeUniqueScreenshots = (...groups: ScreenshotRecord[][]) => {
 const buildPromptPreview = (
   payload: SessionWorkbenchPayload,
   input: {
+    analysis_context?: {
+      attachments?: Array<{
+        kind?: string
+        data_url?: string
+      }>
+      background_note_md?: string
+      background_toggles?: Record<string, boolean>
+      image_region_mode?: string
+      packet_preview?: {
+        summary?: string
+      }
+    }
     prompt_kind: 'market-analysis' | 'trade-review' | 'period-review'
     period_id?: string
     screenshot_id?: string | null
@@ -463,12 +516,40 @@ const buildPromptPreview = (
     throw new Error(`当前 Session 中未找到截图 ${input.screenshot_id}。`)
   }
 
-  const sections = [basePrompt, buildScreenshotContext(screenshot)]
+  const sections = [basePrompt]
+  const packetAudit = buildPacketAuditSection(input.analysis_context)
+  if (packetAudit) {
+    sections.push(packetAudit)
+  }
+  sections.push(buildScreenshotContext(screenshot))
   const backgroundContext = buildBackgroundScreenshotContexts(options?.marketAnalysis?.backgroundScreenshots ?? [])
   if (backgroundContext) {
     sections.push(backgroundContext)
   }
   return sections.join('\n\n')
+}
+
+const resolveMarketAnalysisAttachmentScreenshotIds = (input: {
+  analysis_context?: {
+    attachments?: Array<{
+      kind?: string
+      data_url?: string
+    }>
+  }
+  prompt_kind: 'market-analysis' | 'trade-review' | 'period-review'
+}, primaryScreenshot: ScreenshotRecord | null, backgroundScreenshots: ScreenshotRecord[]) => {
+  if (input.prompt_kind !== 'market-analysis') {
+    return []
+  }
+
+  if (countInlinePacketImageAttachments(input.analysis_context) > 0) {
+    return []
+  }
+
+  return [...new Set([
+    ...(primaryScreenshot ? [primaryScreenshot.id] : []),
+    ...backgroundScreenshots.map((screenshot) => screenshot.id),
+  ])]
 }
 
 const inferTradeState = (
@@ -728,6 +809,11 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     throw new Error('trade-review 必须绑定到一笔真实 Trade。')
   }
 
+  const marketAnalysisAttachmentScreenshotIds = resolveMarketAnalysisAttachmentScreenshotIds({
+    analysis_context: input.analysis_context,
+    prompt_kind: input.prompt_kind,
+  }, primaryScreenshot, backgroundScreenshots)
+
   const promptContext = await buildPromptContext(paths, analysisPayload, {
     screenshot_id: analysisPayload.session.id === payload.session.id
       ? input.screenshot_id ?? null
@@ -777,29 +863,25 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
   let adapterResult
   try {
     adapterResult = await adapter.runAnalysis({
-    config: providerConfig,
-    env,
-    input,
-    paths,
-    payload: {
-      ...analysisPayload,
-      screenshots: mergeUniqueScreenshots(
-        analysisPayload.screenshots,
-        primaryScreenshot ? [primaryScreenshot] : [],
-      ),
-    },
-    promptPreview,
-    promptTemplate,
-    providerSecret,
-    attachment_screenshot_ids: input.prompt_kind === 'trade-review'
-      ? resolveTradeReviewAttachments(tradeDetail!)
-      : input.prompt_kind === 'market-analysis'
-        ? [...new Set([
-          ...(primaryScreenshot ? [primaryScreenshot.id] : []),
-          ...backgroundScreenshots.map((screenshot) => screenshot.id),
-        ])]
-        : [],
-  })
+      config: providerConfig,
+      env,
+      input,
+      paths,
+      payload: {
+        ...analysisPayload,
+        screenshots: mergeUniqueScreenshots(
+          analysisPayload.screenshots,
+          primaryScreenshot ? [primaryScreenshot] : [],
+          backgroundScreenshots,
+        ),
+      },
+      promptPreview,
+      promptTemplate,
+      providerSecret,
+      attachment_screenshot_ids: input.prompt_kind === 'trade-review'
+        ? resolveTradeReviewAttachments(tradeDetail!)
+        : marketAnalysisAttachmentScreenshotIds,
+    })
   } catch (error) {
     try {
       await recordAiAnalysisFailure(paths, {
