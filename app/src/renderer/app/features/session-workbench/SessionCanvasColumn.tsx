@@ -21,11 +21,13 @@ import type { CurrentTargetOption, CurrentTargetOptionsPayload, SessionWorkbench
 import { SessionImageLightbox } from './SessionImageLightbox'
 import { SessionScreenshotCard } from './SessionScreenshotCard'
 import { SessionStoryStack } from './SessionStoryStack'
+import type { AnalysisTrayState } from './session-workbench-types'
 import type { ScreenshotAiReplyRecord } from './modules/session-screenshot-ai-thread'
 import type { ScreenshotGalleryState } from './modules/session-screenshot-gallery'
 
 type SessionCanvasColumnProps = {
   activeContentBlocks: ContentBlockRecord[]
+  analysisTray: AnalysisTrayState
   adoptedAnnotationKeys: Set<string>
   activeAnnotations: AnnotationRecord[]
   annotationInspectorItems: AnnotationInspectorItem[]
@@ -36,6 +38,7 @@ type SessionCanvasColumnProps = {
   deletedContentBlocks: ContentBlockRecord[]
   deletedScreenshots: ScreenshotRecord[]
   draftAnnotations: DraftAnnotation[]
+  onAddScreenshotToAnalysisTray: (screenshotId: string) => void
   onCreateNoteBlock: (input: {
     event_id: string
     title?: string
@@ -51,6 +54,10 @@ type SessionCanvasColumnProps = {
   onDeleteScreenshot: (screenshotId: string) => void
   onDraftAnnotationsChange: (annotations: DraftAnnotation[]) => void
   onImportScreenshot: () => void
+  onOpenAiComposer: (input?: {
+    primaryScreenshotId?: string | null
+  }) => void
+  onQuickSendToAi: (screenshotId?: string | null) => Promise<void>
   onRunAnalysisForScreenshot: (screenshotId: string) => Promise<AiRunExecutionResult | null>
   onRunAnalysisFollowUpForScreenshot: (input: {
     attachments?: AiAnalysisAttachment[]
@@ -62,6 +69,7 @@ type SessionCanvasColumnProps = {
   onRestoreBlock: (block: ContentBlockRecord) => void
   onRestoreScreenshot: (screenshotId: string) => void
   onSaveAnnotations: () => void
+  onSetPrimaryAnalysisTrayScreenshot: (screenshotId: string) => void
   onUpdateAnnotation: (input: {
     annotation_id: string
     label: string
@@ -143,6 +151,7 @@ const resolveScreenshotAiReply = (
 
 export const SessionCanvasColumn = ({
   activeContentBlocks,
+  analysisTray,
   adoptedAnnotationKeys,
   activeAnnotations,
   annotationInspectorItems,
@@ -153,6 +162,7 @@ export const SessionCanvasColumn = ({
   deletedContentBlocks,
   deletedScreenshots,
   draftAnnotations,
+  onAddScreenshotToAnalysisTray,
   onAdoptAnchor,
   onAnnotationSuggestionAction,
   onDeleteAnnotation,
@@ -162,6 +172,8 @@ export const SessionCanvasColumn = ({
   onDeleteScreenshot,
   onDraftAnnotationsChange,
   onImportScreenshot,
+  onOpenAiComposer,
+  onQuickSendToAi,
   onRunAnalysisForScreenshot,
   onRunAnalysisFollowUpForScreenshot,
   onSnipScreenshot,
@@ -169,6 +181,7 @@ export const SessionCanvasColumn = ({
   onRestoreBlock,
   onRestoreScreenshot,
   onSaveAnnotations,
+  onSetPrimaryAnalysisTrayScreenshot,
   onUpdateAnnotation,
   onCreateNoteBlock,
   onUpdateNoteBlock,
@@ -238,6 +251,37 @@ export const SessionCanvasColumn = ({
           screenshot={selectedScreenshot}
           showSaveButton={false}
         />
+        <div className="session-workbench__ai-packet-bar">
+          <div className="session-workbench__ai-packet-meta">
+            <strong>AI 发包</strong>
+            <p>
+              当前主图：{selectedScreenshot?.caption ?? selectedScreenshot?.id ?? '未选择'} ·
+              托盘附图 {analysisTray.screenshotIds.length}
+            </p>
+          </div>
+          <div className="action-row">
+            <button
+              className="button is-secondary"
+              disabled={busy || !selectedScreenshot}
+              onClick={() => {
+                void onQuickSendToAi(selectedScreenshot?.id ?? null)
+              }}
+              type="button"
+            >
+              快速发送
+            </button>
+            <button
+              className="button is-primary"
+              disabled={busy}
+              onClick={() => onOpenAiComposer({
+                primaryScreenshotId: selectedScreenshot?.id ?? null,
+              })}
+              type="button"
+            >
+              编辑后发送
+            </button>
+          </div>
+        </div>
         {screenshotGallery.screenshots.length > 0 ? (
           <div className="session-workbench__media-stack">
             {screenshotGallery.screenshots.map((screenshot, index) => {
@@ -254,18 +298,26 @@ export const SessionCanvasColumn = ({
                   candidateAnnotations={candidateAnnotations}
                   draftAnnotations={draftAnnotations}
                   index={index}
+                  inAnalysisTray={analysisTray.screenshotIds.includes(screenshot.id)}
                   key={screenshot.id}
                   isSelected={isSelected}
+                  isTrayPrimary={analysisTray.primaryScreenshotId === screenshot.id}
                   noteBlock={noteBlock}
+                  onAddToAnalysisTray={onAddScreenshotToAnalysisTray}
                   onCreateNoteBlock={onCreateNoteBlock}
                   onDeleteAiRecord={onDeleteAiRecord}
                   onDeleteScreenshot={onDeleteScreenshot}
                   onDraftAnnotationsChange={onDraftAnnotationsChange}
                   onMoveScreenshot={onMoveScreenshot}
+                  onOpenAiComposer={(screenshotId) => onOpenAiComposer({
+                    primaryScreenshotId: screenshotId,
+                  })}
+                  onQuickSendToAi={onQuickSendToAi}
                   onRunAnalysisForScreenshot={onRunAnalysisForScreenshot}
                   onRunAnalysisFollowUpForScreenshot={onRunAnalysisFollowUpForScreenshot}
                   onSaveAnnotations={onSaveAnnotations}
                   onSelectScreenshot={onSelectScreenshot}
+                  onSetPrimaryAnalysisTrayScreenshot={onSetPrimaryAnalysisTrayScreenshot}
                   onUpdateNoteBlock={onUpdateNoteBlock}
                   screenshot={screenshot}
                   screenshotTargetOption={selectedScreenshotTargetOption}

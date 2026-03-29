@@ -17,6 +17,8 @@
 .session-event-stream__titlebar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 56px;
   padding: 10px 14px 6px;
   border-bottom: 1px solid rgba(56, 70, 68, 0.08);
@@ -36,10 +38,24 @@
   font-weight: 500;
 }
 
+.session-event-stream__subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.session-event-stream__mode-switch,
+.session-event-stream__cluster-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .session-event-stream__list {
   flex: 1;
   min-height: 0;
   padding: 10px 12px 12px;
+  overflow: auto;
 }
 
 .session-event-stream__cluster {
@@ -51,6 +67,87 @@
   border: 1px dashed rgba(56, 70, 68, 0.2);
   background: rgba(248, 247, 242, 0.86);
   text-align: left;
+}
+
+.session-event-stream__cluster p,
+.session-event-stream__stage-header p,
+.session-event-stream__selection-toolbar p,
+.session-event-stream__case-item p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.session-event-stream__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-event-stream__stage + .session-event-stream__stage {
+  margin-top: 14px;
+}
+
+.session-event-stream__stage-header {
+  padding: 0 2px;
+}
+
+.session-event-stream__selection-toolbar,
+.session-event-stream__cases {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(56, 70, 68, 0.08);
+  background: rgba(247, 246, 240, 0.62);
+}
+
+.session-event-stream__selection-toolbar {
+  border-bottom: 1px solid rgba(56, 70, 68, 0.08);
+  background: rgba(239, 245, 243, 0.62);
+}
+
+.session-event-stream__item-shell {
+  position: relative;
+}
+
+.session-event-stream__pin {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  min-width: 72px;
+  z-index: 2;
+}
+
+.session-event-stream__pin.is-active {
+  background: rgba(53, 92, 90, 0.12);
+  border-color: rgba(53, 92, 90, 0.28);
+}
+
+.session-event-stream__cases-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.session-event-stream__case-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(56, 70, 68, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-event-stream__case-item.is-active {
+  border-color: rgba(53, 92, 90, 0.28);
+  box-shadow: 0 0 0 1px rgba(53, 92, 90, 0.12);
 }
 
 .session-event-stream__cluster.is-ai {

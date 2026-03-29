@@ -87,6 +87,12 @@ import {
   TradeMutationResultSchema,
 } from '@shared/contracts/workbench-trade'
 import {
+  GetReviewCaseInputSchema,
+  ListReviewCasesInputSchema,
+  ReviewCaseSchema,
+  SaveReviewCaseInputSchema,
+} from '@shared/contracts/review-case'
+import {
   CurrentContextSchema,
   CurrentTargetOptionSchema,
   CurrentTargetOptionsPayloadSchema,
@@ -529,6 +535,21 @@ export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInput
 export type ExportSessionMarkdownInput = z.infer<typeof ExportSessionMarkdownInputSchema>
 export type ContinueSessionInput = z.infer<typeof ContinueSessionInputSchema>
 export type ContinueSessionResult = z.infer<typeof ContinueSessionResultSchema>
+export type ReviewCaseRecord = z.infer<typeof ReviewCaseSchema>
+export type SaveReviewCaseInput = z.infer<typeof SaveReviewCaseInputSchema>
+export type GetReviewCaseInput = z.infer<typeof GetReviewCaseInputSchema>
+export type ListReviewCasesInput = z.infer<typeof ListReviewCasesInputSchema>
+
+export {
+  ReviewCaseSelectionModeSchema,
+  ReviewCaseEventSelectionSnapshotSchema,
+  ReviewCaseAnalysisTraySnapshotSchema,
+  ReviewCaseSnapshotSchema,
+  ReviewCaseSchema,
+  SaveReviewCaseInputSchema,
+  GetReviewCaseInputSchema,
+  ListReviewCasesInputSchema,
+} from '@shared/contracts/review-case'
 
 export type AlphaNexusApi = {
   app: {
@@ -571,6 +592,9 @@ export type AlphaNexusApi = {
     saveRealtimeView: (input: SaveSessionRealtimeViewInput) => Promise<ContentBlockMutationResult>
     createNoteBlock: (input: CreateWorkbenchNoteBlockInput) => Promise<ContentBlockMutationResult>
     updateNoteBlock: (input: UpdateWorkbenchNoteBlockInput) => Promise<ContentBlockMutationResult>
+    saveReviewCase: (input: SaveReviewCaseInput) => Promise<ReviewCaseRecord>
+    getReviewCase: (input: GetReviewCaseInput) => Promise<ReviewCaseRecord>
+    listReviewCases: (input?: ListReviewCasesInput) => Promise<ReviewCaseRecord[]>
     moveContentBlock: (input: MoveContentBlockInput) => Promise<ContentBlockMoveResult>
     reorderContentBlocks: (input: ReorderContentBlocksInput) => Promise<z.infer<typeof ContentBlockMutationResultSchema>>
     deleteContentBlock: (input: SetContentBlockDeletedInput) => Promise<ContentBlockMutationResult>

@@ -5,12 +5,15 @@ import {
   addToTrade,
   cancelTrade,
   closeTrade,
+  createReviewCase,
   createWorkbenchNoteBlock,
   createFailedAiRun,
   createAiAnalysisArtifacts,
   ensureCurrentContext,
   getCurrentContext,
+  loadReviewCaseById,
   listCurrentTargetOptions,
+  listReviewCasesBySession,
   reorderWorkbenchContentBlocks,
   moveContentBlock,
   moveScreenshot,
@@ -33,10 +36,13 @@ import { getTradeFeedbackBundle } from '@main/feedback/feedback-service'
 import { buildTradeDetailReviewSections, ensureTradeReviewDraft, getPeriodReviewInsights } from '@main/review/review-service'
 import type {
   GetCurrentContextInput,
+  GetReviewCaseInput,
+  ListReviewCasesInput,
   ListTargetOptionsInput,
   MoveContentBlockInput,
   ReorderContentBlocksInput,
   MoveScreenshotInput,
+  SaveReviewCaseInput,
   SaveSessionRealtimeViewInput,
   SetCurrentContextInput,
 } from '@shared/contracts/workbench'
@@ -165,6 +171,21 @@ export const createWorkbenchNote = async(paths: LocalFirstPaths, input: Paramete
 export const updateWorkbenchNote = async(paths: LocalFirstPaths, input: Parameters<typeof updateWorkbenchNoteBlock>[1]) => {
   const db = await getDatabase(paths)
   return updateWorkbenchNoteBlock(db, input)
+}
+
+export const saveReviewCase = async(paths: LocalFirstPaths, input: SaveReviewCaseInput) => {
+  const db = await getDatabase(paths)
+  return createReviewCase(db, input)
+}
+
+export const fetchReviewCase = async(paths: LocalFirstPaths, input: GetReviewCaseInput) => {
+  const db = await getDatabase(paths)
+  return loadReviewCaseById(db, input.review_case_id)
+}
+
+export const fetchReviewCases = async(paths: LocalFirstPaths, input?: ListReviewCasesInput) => {
+  const db = await getDatabase(paths)
+  return listReviewCasesBySession(db, input?.session_id)
 }
 
 export const reorderWorkbenchNotes = async(paths: LocalFirstPaths, input: ReorderContentBlocksInput) => {

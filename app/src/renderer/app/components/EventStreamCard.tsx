@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import type { ScreenshotRecord } from '@shared/contracts/content'
 import type { EventRecord } from '@shared/contracts/event'
 import type { TradeRecord } from '@shared/contracts/trade'
@@ -14,7 +15,7 @@ type EventStreamCardProps = {
   dimmed?: boolean
   event: EventRecord
   highlighted?: boolean
-  onClick?: () => void
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void
   onFocusTrade?: () => void
   onOpenTrade?: () => void
   screenshotKind?: ScreenshotRecord['kind'] | null

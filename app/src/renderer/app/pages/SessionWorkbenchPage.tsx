@@ -1,4 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom'
+import { SessionAiComposerDrawer } from '@app/features/session-workbench/SessionAiComposerDrawer'
+import { SessionAiDock } from '@app/features/session-workbench/SessionAiDock'
 import { SessionCanvasColumn } from '@app/features/session-workbench/SessionCanvasColumn'
 import { SessionEventColumn } from '@app/features/session-workbench/SessionEventColumn'
 import { SessionWorkbenchHeader } from '@app/features/session-workbench/SessionWorkbenchHeader'
@@ -42,160 +44,209 @@ export const SessionWorkbenchPage = () => {
 
       <div className="session-workbench__layout">
         <SessionEventColumn
+          activeReviewCaseId={workbench.activeReviewCase?.id ?? null}
+          busy={workbench.busy}
           currentTrade={workbench.currentTrade}
+          eventSelection={workbench.eventSelection}
           events={workbench.payload.events}
-          onSelectEvent={workbench.selectEvent}
+          onAddSelectionToAnalysisTray={workbench.addSelectionToAnalysisTray}
+          onClearSelection={workbench.clearEventSelection}
+          onOpenReviewCase={(reviewCaseId) => {
+            void workbench.handleOpenReviewCase(reviewCaseId)
+          }}
           onOpenTrade={(tradeId) => {
             void navigate(`/trades/${tradeId}`)
           }}
+          onSaveSelectionAsReviewCase={() => {
+            void workbench.handleSaveReviewCase()
+          }}
+          onSelectEvent={workbench.selectEvent}
+          onTogglePinnedEvent={workbench.togglePinnedEvent}
+          reviewCases={workbench.reviewCases}
           sessionCreatedAt={workbench.payload.session.created_at}
           screenshots={workbench.payload.screenshots}
-          selectedEventId={workbench.selectedEvent?.id ?? null}
+          selectedEventIds={workbench.selectedEventIds}
           trades={workbench.payload.trades}
         />
-        <div className="session-workbench__page">
-          <SessionCanvasColumn
-            activeContentBlocks={workbench.activeContentBlocks}
-            activeAnnotations={workbench.selectedScreenshotAnnotations}
-            adoptedAnnotationKeys={workbench.adoptedAnnotationKeys}
-            annotationInspectorItems={workbench.annotationInspectorItems}
-            annotationSuggestions={workbench.annotationSuggestions}
-            busy={workbench.busy}
-            currentTrade={workbench.currentTrade}
-            deletedAnnotations={workbench.deletedAnnotations}
-            deletedContentBlocks={workbench.deletedContentBlocks}
-            deletedScreenshots={workbench.deletedScreenshots}
-            draftAnnotations={workbench.draftAnnotations}
-            onCreateNoteBlock={(input) => workbench.handleCreateNoteBlock(input)}
-            onAdoptAnchor={workbench.handleAdoptAnchorFromAnnotation}
-            onAnnotationSuggestionAction={(suggestionId, action) => {
-              void workbench.handleAnnotationSuggestionAction(suggestionId, action)
-            }}
-            onDeleteAiRecord={(aiRunId) => {
-              void workbench.handleDeleteAiRecord(aiRunId)
-            }}
-            onDeleteAnnotation={(annotationId) => {
-              void workbench.handleDeleteAnnotation(annotationId)
-            }}
-            onDeleteBlock={(block) => {
-              void workbench.handleDeleteBlock(block)
-            }}
-            onMoveContentBlock={(block, option) => {
-              void workbench.handleMoveContentBlock(block, option)
-            }}
-            onMoveScreenshot={(screenshot, option) => {
-              void workbench.handleMoveScreenshot(screenshot, option)
-            }}
-            onDeleteScreenshot={(screenshotId) => {
-              void workbench.handleDeleteScreenshot(screenshotId)
-            }}
-            onDraftAnnotationsChange={workbench.setDraftAnnotations}
-            onImportScreenshot={() => {
-              void workbench.handleImportScreenshot()
-            }}
-            onRunAnalysisForScreenshot={(screenshotId) => workbench.handleRunAnalysisForScreenshot(screenshotId)}
-            onRunAnalysisFollowUpForScreenshot={(input) => workbench.handleRunAnalysisFollowUpForScreenshot(input)}
-            onSnipScreenshot={() => {
-              void workbench.handleOpenSnipCapture()
-            }}
-            onRestoreAnnotation={(annotationId) => {
-              void workbench.handleRestoreAnnotation(annotationId)
-            }}
-            onRestoreBlock={(block) => {
-              void workbench.handleRestoreBlock(block)
-            }}
-            onRestoreScreenshot={(screenshotId) => {
-              void workbench.handleRestoreScreenshot(screenshotId)
-            }}
-            onSaveAnnotations={() => {
-              void workbench.handleSaveAnnotations()
-            }}
-            onUpdateAnnotation={(input) => {
-              void workbench.handleUpdateAnnotation(input)
-            }}
-            onUpdateNoteBlock={(input) => workbench.handleUpdateNoteBlock(input)}
-            moveTargetOptions={workbench.moveTargetOptions}
-            onSelectScreenshot={workbench.selectScreenshot}
-            payload={workbench.payload}
-            screenshotGallery={workbench.screenshotGallery}
-            selectedEvent={workbench.selectedEvent}
-            selectedScreenshot={workbench.selectedScreenshot}
-          />
+        <SessionCanvasColumn
+          activeContentBlocks={workbench.activeContentBlocks}
+          activeAnnotations={workbench.selectedScreenshotAnnotations}
+          adoptedAnnotationKeys={workbench.adoptedAnnotationKeys}
+          analysisTray={workbench.analysisTray}
+          annotationInspectorItems={workbench.annotationInspectorItems}
+          annotationSuggestions={workbench.annotationSuggestions}
+          busy={workbench.busy}
+          currentTrade={workbench.currentTrade}
+          deletedAnnotations={workbench.deletedAnnotations}
+          deletedContentBlocks={workbench.deletedContentBlocks}
+          deletedScreenshots={workbench.deletedScreenshots}
+          draftAnnotations={workbench.draftAnnotations}
+          onAddScreenshotToAnalysisTray={workbench.addScreenshotToAnalysisTray}
+          onCreateNoteBlock={(input) => workbench.handleCreateNoteBlock(input)}
+          onAdoptAnchor={workbench.handleAdoptAnchorFromAnnotation}
+          onAnnotationSuggestionAction={(suggestionId, action) => {
+            void workbench.handleAnnotationSuggestionAction(suggestionId, action)
+          }}
+          onDeleteAiRecord={(aiRunId) => {
+            void workbench.handleDeleteAiRecord(aiRunId)
+          }}
+          onDeleteAnnotation={(annotationId) => {
+            void workbench.handleDeleteAnnotation(annotationId)
+          }}
+          onDeleteBlock={(block) => {
+            void workbench.handleDeleteBlock(block)
+          }}
+          onMoveContentBlock={(block, option) => {
+            void workbench.handleMoveContentBlock(block, option)
+          }}
+          onMoveScreenshot={(screenshot, option) => {
+            void workbench.handleMoveScreenshot(screenshot, option)
+          }}
+          onDeleteScreenshot={(screenshotId) => {
+            void workbench.handleDeleteScreenshot(screenshotId)
+          }}
+          onDraftAnnotationsChange={workbench.setDraftAnnotations}
+          onImportScreenshot={() => {
+            void workbench.handleImportScreenshot()
+          }}
+          onOpenAiComposer={workbench.openAiComposer}
+          onQuickSendToAi={workbench.handleQuickSendToAi}
+          onRunAnalysisForScreenshot={(screenshotId) => workbench.handleRunAnalysisForScreenshot(screenshotId)}
+          onRunAnalysisFollowUpForScreenshot={(input) => workbench.handleRunAnalysisFollowUpForScreenshot(input)}
+          onSnipScreenshot={() => {
+            void workbench.handleOpenSnipCapture()
+          }}
+          onRestoreAnnotation={(annotationId) => {
+            void workbench.handleRestoreAnnotation(annotationId)
+          }}
+          onRestoreBlock={(block) => {
+            void workbench.handleRestoreBlock(block)
+          }}
+          onRestoreScreenshot={(screenshotId) => {
+            void workbench.handleRestoreScreenshot(screenshotId)
+          }}
+          onSaveAnnotations={() => {
+            void workbench.handleSaveAnnotations()
+          }}
+          onSetPrimaryAnalysisTrayScreenshot={workbench.setPrimaryAnalysisTrayScreenshot}
+          onUpdateAnnotation={(input) => {
+            void workbench.handleUpdateAnnotation(input)
+          }}
+          onUpdateNoteBlock={(input) => workbench.handleUpdateNoteBlock(input)}
+          moveTargetOptions={workbench.moveTargetOptions}
+          onSelectScreenshot={workbench.selectScreenshot}
+          payload={workbench.payload}
+          screenshotGallery={workbench.screenshotGallery}
+          selectedEvent={workbench.selectedEvent}
+          selectedScreenshot={workbench.selectedScreenshot}
+        />
 
-          <SessionWorkspaceColumn
-            activeAnchors={workbench.activeAnchors}
-            analysisCard={workbench.analysisCard}
-            anchorReviewSuggestions={workbench.anchorReviewSuggestions}
-            anchors={workbench.anchors}
-            busy={workbench.busy}
-            composerSuggestions={workbench.composerSuggestions}
-            currentTrade={workbench.currentTrade}
-            deletedAiRecords={workbench.deletedAiRecords}
-            groundingHits={workbench.groundingHits}
-            latestEvaluation={workbench.latestEvaluation}
-            onAddToTrade={(input) => {
-              void workbench.handleAddToTrade(input)
-            }}
-            onCloseTrade={(input) => {
-              void workbench.handleCloseTrade(input)
-            }}
-            onCancelTrade={(input) => {
-              void workbench.handleCancelTrade(input)
-            }}
-            onDeleteAiRecord={(aiRunId) => {
-              void workbench.handleDeleteAiRecord(aiRunId)
-            }}
-            onDeleteBlock={(block) => {
-              void workbench.handleDeleteBlock(block)
-            }}
-            onComposerSuggestionAccept={(suggestion) => {
-              void workbench.handleComposerSuggestionAccept(suggestion)
-            }}
-            onCreateNoteBlock={(input) => workbench.handleCreateNoteBlock(input)}
-            onOpenTrade={(input) => {
-              void workbench.handleOpenTrade(input)
-            }}
-            onPasteClipboardImage={() => {
-              void workbench.handlePasteClipboardImage()
-            }}
-            onPasteClipboardImageAndRunAnalysis={() => {
-              void workbench.handlePasteClipboardImageAndRunAnalysis()
-            }}
-            onReorderNoteBlocks={(input) => {
-              void workbench.handleReorderNoteBlocks(input)
-            }}
-            onReduceTrade={(input) => {
-              void workbench.handleReduceTrade(input)
-            }}
-            onRealtimeDraftChange={workbench.setRealtimeDraft}
-            onRestoreAiRecord={(aiRunId) => {
-              void workbench.handleRestoreAiRecord(aiRunId)
-            }}
-            onRunAnalysis={() => {
-              void workbench.handleRunAnalysis()
-            }}
-            onRunAnalysisAcrossProviders={() => {
-              void workbench.handleRunAnalysisAcrossProviders()
-            }}
-            onRestoreBlock={(block) => {
-              void workbench.handleRestoreBlock(block)
-            }}
-            onSaveRealtimeView={() => {
-              void workbench.handleSaveRealtimeView()
-            }}
-            onSaveRealtimeViewAndRunAnalysis={() => {
-              void workbench.handleSaveRealtimeViewAndRunAnalysis()
-            }}
-            onSetAnchorStatus={workbench.handleSetAnchorStatus}
-            onUpdateNoteBlock={(input) => workbench.handleUpdateNoteBlock(input)}
-            payload={workbench.payload}
-            realtimeDraft={workbench.realtimeDraft}
-            realtimeViewBlock={workbench.realtimeViewBlock}
-            selectedScreenshot={workbench.selectedScreenshot}
-            similarCases={workbench.similarCases}
-          />
-        </div>
+        <SessionWorkspaceColumn
+          activeAnchors={workbench.activeAnchors}
+          analysisCard={workbench.analysisCard}
+          anchorReviewSuggestions={workbench.anchorReviewSuggestions}
+          anchors={workbench.anchors}
+          busy={workbench.busy}
+          composerSuggestions={workbench.composerSuggestions}
+          currentTrade={workbench.currentTrade}
+          deletedAiRecords={workbench.deletedAiRecords}
+          groundingHits={workbench.groundingHits}
+          latestEvaluation={workbench.latestEvaluation}
+          onAddToTrade={(input) => {
+            void workbench.handleAddToTrade(input)
+          }}
+          onCloseTrade={(input) => {
+            void workbench.handleCloseTrade(input)
+          }}
+          onCancelTrade={(input) => {
+            void workbench.handleCancelTrade(input)
+          }}
+          onDeleteAiRecord={(aiRunId) => {
+            void workbench.handleDeleteAiRecord(aiRunId)
+          }}
+          onDeleteBlock={(block) => {
+            void workbench.handleDeleteBlock(block)
+          }}
+          onComposerSuggestionAccept={(suggestion) => {
+            void workbench.handleComposerSuggestionAccept(suggestion)
+          }}
+          onCreateNoteBlock={(input) => workbench.handleCreateNoteBlock(input)}
+          onOpenTrade={(input) => {
+            void workbench.handleOpenTrade(input)
+          }}
+          onPasteClipboardImage={() => {
+            void workbench.handlePasteClipboardImage()
+          }}
+          onPasteClipboardImageAndRunAnalysis={() => {
+            void workbench.handlePasteClipboardImageAndRunAnalysis()
+          }}
+          onReorderNoteBlocks={(input) => {
+            void workbench.handleReorderNoteBlocks(input)
+          }}
+          onReduceTrade={(input) => {
+            void workbench.handleReduceTrade(input)
+          }}
+          onRealtimeDraftChange={workbench.setRealtimeDraft}
+          onRestoreAiRecord={(aiRunId) => {
+            void workbench.handleRestoreAiRecord(aiRunId)
+          }}
+          onRunAnalysis={() => {
+            void workbench.handleRunAnalysis()
+          }}
+          onRunAnalysisAcrossProviders={() => {
+            void workbench.handleRunAnalysisAcrossProviders()
+          }}
+          onRestoreBlock={(block) => {
+            void workbench.handleRestoreBlock(block)
+          }}
+          onSaveRealtimeView={() => {
+            void workbench.handleSaveRealtimeView()
+          }}
+          onSaveRealtimeViewAndRunAnalysis={() => {
+            void workbench.handleSaveRealtimeViewAndRunAnalysis()
+          }}
+          onSetAnchorStatus={workbench.handleSetAnchorStatus}
+          onUpdateNoteBlock={(input) => workbench.handleUpdateNoteBlock(input)}
+          payload={workbench.payload}
+          realtimeDraft={workbench.realtimeDraft}
+          realtimeViewBlock={workbench.realtimeViewBlock}
+          selectedScreenshot={workbench.selectedScreenshot}
+          similarCases={workbench.similarCases}
+        />
       </div>
+
+      <SessionAiDock
+        busy={workbench.busy}
+        composer={workbench.aiComposer}
+        contextChips={workbench.aiDockContextChips}
+        dockDraft={workbench.aiDockDraft}
+        dockState={workbench.aiDockState}
+        dockTab={workbench.aiDockTab}
+        onOpenComposer={() => workbench.openAiComposer()}
+        onSendFollowUp={() => {
+          void workbench.handleSendAiDockFollowUp()
+        }}
+        onSetDockDraft={workbench.setAiDockDraft}
+        onSetDockExpanded={workbench.setAiDockExpanded}
+        onSetDockSize={workbench.setAiDockSize}
+        onSetDockTab={workbench.setAiDockTab}
+        payload={workbench.payload}
+      />
+
+      <SessionAiComposerDrawer
+        busy={workbench.busy}
+        composer={workbench.aiComposer}
+        onClose={workbench.closeAiComposer}
+        onRemoveBackgroundScreenshot={workbench.removeAiComposerBackgroundScreenshot}
+        onSend={() => {
+          void workbench.handleSendAiComposer()
+        }}
+        onSetBackgroundDraft={workbench.setAiComposerBackgroundDraft}
+        onSetBackgroundToggle={workbench.setAiComposerBackgroundToggle}
+        onSetImageRegionMode={workbench.setAiComposerImageRegionMode}
+        onSetPrimaryScreenshot={workbench.setAiComposerPrimaryScreenshot}
+        screenshots={workbench.payload.screenshots}
+      />
     </section>
   ) : (
     <div className="empty-state">{workbench.message ?? '正在加载 Session 工作台...'}</div>

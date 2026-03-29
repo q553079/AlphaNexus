@@ -7,15 +7,18 @@ import {
   cancelExistingTrade,
   closeExistingTrade,
   createWorkbenchNoteBlockForContext,
+  getWorkbenchReviewCase,
   getCurrentWorkbenchContext,
   getPeriodReview,
   getSessionWorkbench,
   getTradeDetail,
   listWorkbenchTargetOptions,
+  listWorkbenchReviewCases,
   reorderWorkbenchNoteBlocks,
   moveScreenshotToTarget,
   openTradeForSession,
   retargetContentBlock,
+  saveWorkbenchReviewCase,
   setCurrentWorkbenchContext,
   softDeleteAiRecord,
   softDeleteAnnotation,
@@ -58,12 +61,14 @@ import {
   CurrentContextSchema,
   CurrentTargetOptionsPayloadSchema,
   GetCurrentContextInputSchema,
+  GetReviewCaseInputSchema,
   GetAnchorReviewSuggestionsInputSchema,
   GetComposerSuggestionsInputSchema,
   GetRankingExplanationsInputSchema,
   GetSimilarCasesInputSchema,
   GetTrainingInsightsInputSchema,
   GetUserProfileInputSchema,
+  ListReviewCasesInputSchema,
   ListTargetOptionsInputSchema,
   ListMemoryProposalsInputSchema,
   MoveContentBlockInputSchema,
@@ -74,6 +79,7 @@ import {
   ReduceTradeInputSchema,
   CancelTradeInputSchema,
   RunAnnotationSuggestionsInputSchema,
+  SaveReviewCaseInputSchema,
   SaveSessionRealtimeViewInputSchema,
   SessionWorkbenchPayloadSchema,
   SetCurrentContextInputSchema,
@@ -326,6 +332,18 @@ export const registerWorkbenchIpc = ({ paths }: AppContext) => {
   ipcMain.handle('workbench:update-note-block', async(_event, input) => {
     const result = await updateWorkbenchNoteBlockContent(paths, UpdateWorkbenchNoteBlockInputSchema.parse(input))
     return ContentBlockMutationResultSchema.parse({ block: result })
+  })
+
+  ipcMain.handle('workbench:save-review-case', async(_event, input) => {
+    return saveWorkbenchReviewCase(paths, SaveReviewCaseInputSchema.parse(input))
+  })
+
+  ipcMain.handle('workbench:get-review-case', async(_event, input) => {
+    return getWorkbenchReviewCase(paths, GetReviewCaseInputSchema.parse(input))
+  })
+
+  ipcMain.handle('workbench:list-review-cases', async(_event, input) => {
+    return listWorkbenchReviewCases(paths, ListReviewCasesInputSchema.parse(input))
   })
 
   ipcMain.handle('workbench:move-content-block', async(_event, input) => {

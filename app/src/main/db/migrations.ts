@@ -495,6 +495,51 @@ const migrations: Migration[] = [
       ON screenshots(analysis_session_id, analysis_role, created_at DESC);
     `,
   },
+  {
+    id: 11,
+    name: 'create-review-case-tables',
+    sql: `
+      CREATE TABLE IF NOT EXISTS review_cases (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        source_session_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary_md TEXT NOT NULL,
+        ai_summary_md TEXT NOT NULL,
+        selection_mode TEXT NOT NULL,
+        time_range_start TEXT,
+        time_range_end TEXT,
+        screenshot_ids_json TEXT NOT NULL DEFAULT '[]',
+        FOREIGN KEY (source_session_id) REFERENCES sessions(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS review_case_events (
+        id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        review_case_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        FOREIGN KEY (review_case_id) REFERENCES review_cases(id),
+        FOREIGN KEY (event_id) REFERENCES events(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS review_case_snapshots (
+        review_case_id TEXT PRIMARY KEY,
+        updated_at TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        FOREIGN KEY (review_case_id) REFERENCES review_cases(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_review_cases_session_updated
+      ON review_cases(source_session_id, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_review_case_events_case_sort
+      ON review_case_events(review_case_id, sort_order ASC, created_at ASC);
+    `,
+  },
 ]
 
 export const applyMigrations = (db: Database.Database) => {

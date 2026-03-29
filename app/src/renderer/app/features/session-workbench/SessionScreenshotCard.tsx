@@ -23,8 +23,11 @@ type SessionScreenshotCardProps = {
   candidateAnnotations: PendingDraftAnnotation[]
   draftAnnotations: DraftAnnotation[]
   index: number
+  inAnalysisTray?: boolean
   isSelected: boolean
+  isTrayPrimary?: boolean
   noteBlock: ContentBlockRecord | null
+  onAddToAnalysisTray?: (screenshotId: string) => void
   onCreateNoteBlock: (input: {
     event_id: string
     title?: string
@@ -34,6 +37,8 @@ type SessionScreenshotCardProps = {
   onDeleteScreenshot: (screenshotId: string) => void
   onDraftAnnotationsChange: (annotations: DraftAnnotation[]) => void
   onMoveScreenshot: (screenshot: ScreenshotRecord, option: CurrentTargetOption) => void
+  onOpenAiComposer?: (screenshotId: string) => void
+  onQuickSendToAi?: (screenshotId: string) => void
   onRunAnalysisFollowUpForScreenshot: (input: {
     attachments?: AiAnalysisAttachment[]
     backgroundNoteMd: string
@@ -42,6 +47,7 @@ type SessionScreenshotCardProps = {
   onRunAnalysisForScreenshot: (screenshotId: string) => Promise<AiRunExecutionResult | null>
   onSaveAnnotations: () => void
   onSelectScreenshot: (screenshotId: string) => void
+  onSetPrimaryAnalysisTrayScreenshot?: (screenshotId: string) => void
   onUpdateNoteBlock: (input: {
     block_id: string
     title: string
@@ -171,17 +177,23 @@ export const SessionScreenshotCard = ({
   candidateAnnotations,
   draftAnnotations,
   index,
+  inAnalysisTray = false,
   isSelected,
+  isTrayPrimary = false,
   noteBlock,
+  onAddToAnalysisTray,
   onCreateNoteBlock,
   onDeleteAiRecord,
   onDeleteScreenshot,
   onDraftAnnotationsChange,
   onMoveScreenshot,
+  onOpenAiComposer,
+  onQuickSendToAi,
   onRunAnalysisFollowUpForScreenshot,
   onRunAnalysisForScreenshot,
   onSaveAnnotations,
   onSelectScreenshot,
+  onSetPrimaryAnalysisTrayScreenshot,
   onUpdateNoteBlock,
   screenshot,
   screenshotTargetOption,
@@ -293,6 +305,8 @@ export const SessionScreenshotCard = ({
         <div className="session-workbench__media-header-side">
           <span className="status-pill">{translateCaptureKind(screenshot.kind)}</span>
           {headerDescription.sourceLabel ? <span className="status-pill">{headerDescription.sourceLabel}</span> : null}
+          {inAnalysisTray ? <span className="status-pill">已在 AI 托盘</span> : null}
+          {isTrayPrimary ? <span className="status-pill">AI 主图</span> : null}
           {isSelected ? <span className="status-pill">当前绘图</span> : null}
         </div>
       </div>
@@ -331,12 +345,48 @@ export const SessionScreenshotCard = ({
               <button
                 className="button is-secondary"
                 disabled={busy}
+                onClick={() => onAddToAnalysisTray?.(screenshot.id)}
+                type="button"
+              >
+                {inAnalysisTray ? '已在托盘' : '加入 AI 托盘'}
+              </button>
+              {inAnalysisTray ? (
+                <button
+                  className="button is-secondary"
+                  disabled={busy}
+                  onClick={() => onSetPrimaryAnalysisTrayScreenshot?.(screenshot.id)}
+                  type="button"
+                >
+                  {isTrayPrimary ? '当前主图' : '设为主图'}
+                </button>
+              ) : null}
+              <button
+                className="button is-secondary"
+                disabled={busy}
                 onClick={() => {
+                  if (onQuickSendToAi) {
+                    void onQuickSendToAi(screenshot.id)
+                    return
+                  }
                   void onRunAnalysisForScreenshot(screenshot.id)
                 }}
                 type="button"
               >
-                让 AI 参考这张图
+                快速发送
+              </button>
+              <button
+                className="button is-primary"
+                disabled={busy}
+                onClick={() => {
+                  if (onOpenAiComposer) {
+                    onOpenAiComposer(screenshot.id)
+                    return
+                  }
+                  void onRunAnalysisForScreenshot(screenshot.id)
+                }}
+                type="button"
+              >
+                编辑后发送
               </button>
             </div>
           </div>

@@ -18,6 +18,7 @@ import type { EvaluationRecord, TradeRecord } from '@shared/contracts/trade'
 import type { AiRecordChain, SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import { resolveTradeForCurrentContext } from '@shared/contracts/workbench'
 import type { AnalysisCardRecord } from '@shared/contracts/analysis'
+import type { EventSelectionState } from '../session-workbench-types'
 import {
   toComposerGroundingHitView,
   toComposerSuggestionView,
@@ -29,6 +30,189 @@ import {
   toSimilarCaseView,
 } from './session-workbench-mappers'
 import { buildScreenshotGalleryState, type ScreenshotGalleryState } from './session-screenshot-gallery'
+
+const buildEmptyEventSelectionState = (): EventSelectionState => ({
+  mode: 'single',
+  primaryEventId: null,
+  selectedEventIds: [],
+  rangeAnchorId: null,
+  pinnedEventIds: [],
+})
+
+const orderEventIdsByTimeline = (events: EventRecord[], eventIds: string[]) => {
+  const uniqueIds = new Set(eventIds)
+  return events
+    .map((event) => event.id)
+    .filter((eventId) => uniqueIds.has(eventId))
+}
+
+const getRangeEventIds = (
+  events: EventRecord[],
+  startEventId: string,
+  endEventId: string,
+) => {
+  const startIndex = events.findIndex((event) => event.id === startEventId)
+  const endIndex = events.findIndex((event) => event.id === endEventId)
+  if (startIndex < 0 || endIndex < 0) {
+    return []
+  }
+
+  const [rangeStart, rangeEnd] = startIndex <= endIndex
+    ? [startIndex, endIndex]
+    : [endIndex, startIndex]
+  return events.slice(rangeStart, rangeEnd + 1).map((event) => event.id)
+}
+
+export const createSingleEventSelectionState = (
+  events: EventRecord[],
+  eventId: string | null,
+): EventSelectionState => {
+  if (!eventId || !events.some((event) => event.id === eventId)) {
+    return buildEmptyEventSelectionState()
+  }
+
+  return {
+    mode: 'single',
+    primaryEventId: eventId,
+    selectedEventIds: [eventId],
+    rangeAnchorId: eventId,
+    pinnedEventIds: [],
+  }
+}
+
+export const clearEventSelectionState = () => buildEmptyEventSelectionState()
+
+export const normalizeEventSelectionState = (
+  events: EventRecord[],
+  currentState: EventSelectionState | null,
+  options?: {
+    preferFirstEvent?: boolean
+  },
+): EventSelectionState => {
+  const preferFirstEvent = options?.preferFirstEvent ?? false
+  if (!currentState) {
+    return preferFirstEvent && events[0]
+      ? createSingleEventSelectionState(events, events[0].id)
+      : buildEmptyEventSelectionState()
+  }
+
+  const normalizedSelectedIds = orderEventIdsByTimeline(events, currentState.selectedEventIds)
+  const normalizedPinnedIds = orderEventIdsByTimeline(events, currentState.pinnedEventIds)
+  const primaryEventId = currentState.primaryEventId && events.some((event) => event.id === currentState.primaryEventId)
+    ? currentState.primaryEventId
+    : normalizedSelectedIds.at(-1) ?? normalizedPinnedIds.at(-1) ?? null
+  const rangeAnchorId = currentState.rangeAnchorId && events.some((event) => event.id === currentState.rangeAnchorId)
+    ? currentState.rangeAnchorId
+    : primaryEventId
+
+  if (currentState.mode === 'pinned') {
+    if (normalizedPinnedIds.length > 1) {
+      return {
+        mode: 'pinned',
+        primaryEventId: primaryEventId && normalizedPinnedIds.includes(primaryEventId)
+          ? primaryEventId
+          : normalizedPinnedIds.at(-1) ?? null,
+        selectedEventIds: normalizedPinnedIds,
+        rangeAnchorId,
+        pinnedEventIds: normalizedPinnedIds,
+      }
+    }
+
+    if (normalizedPinnedIds.length === 1) {
+      return createSingleEventSelectionState(events, normalizedPinnedIds[0])
+    }
+  }
+
+  if (currentState.mode === 'range' && primaryEventId && rangeAnchorId) {
+    const rangeEventIds = getRangeEventIds(events, rangeAnchorId, primaryEventId)
+    if (rangeEventIds.length > 1) {
+      return {
+        mode: 'range',
+        primaryEventId,
+        selectedEventIds: rangeEventIds,
+        rangeAnchorId,
+        pinnedEventIds: [],
+      }
+    }
+  }
+
+  if (primaryEventId) {
+    return createSingleEventSelectionState(events, primaryEventId)
+  }
+
+  return preferFirstEvent && events[0]
+    ? createSingleEventSelectionState(events, events[0].id)
+    : buildEmptyEventSelectionState()
+}
+
+export const selectEventInSelectionState = (
+  events: EventRecord[],
+  currentState: EventSelectionState | null,
+  eventId: string,
+  options?: {
+    shiftKey?: boolean
+  },
+): EventSelectionState => {
+  if (!options?.shiftKey) {
+    return createSingleEventSelectionState(events, eventId)
+  }
+
+  const normalizedState = normalizeEventSelectionState(events, currentState, {
+    preferFirstEvent: false,
+  })
+  const rangeAnchorId = normalizedState.rangeAnchorId ?? normalizedState.primaryEventId ?? eventId
+  const rangeEventIds = getRangeEventIds(events, rangeAnchorId, eventId)
+
+  if (rangeEventIds.length <= 1) {
+    return createSingleEventSelectionState(events, eventId)
+  }
+
+  return {
+    mode: 'range',
+    primaryEventId: eventId,
+    selectedEventIds: rangeEventIds,
+    rangeAnchorId,
+    pinnedEventIds: [],
+  }
+}
+
+export const togglePinnedEventInSelectionState = (
+  events: EventRecord[],
+  currentState: EventSelectionState | null,
+  eventId: string,
+): EventSelectionState => {
+  const normalizedState = normalizeEventSelectionState(events, currentState, {
+    preferFirstEvent: false,
+  })
+  const nextPinnedIds = new Set(
+    normalizedState.mode === 'pinned'
+      ? normalizedState.pinnedEventIds
+      : normalizedState.primaryEventId
+        ? [normalizedState.primaryEventId]
+        : [],
+  )
+
+  if (nextPinnedIds.has(eventId)) {
+    nextPinnedIds.delete(eventId)
+  } else {
+    nextPinnedIds.add(eventId)
+  }
+
+  const orderedPinnedIds = orderEventIdsByTimeline(events, [...nextPinnedIds])
+  if (orderedPinnedIds.length <= 1) {
+    return createSingleEventSelectionState(events, orderedPinnedIds[0] ?? eventId)
+  }
+
+  return {
+    mode: 'pinned',
+    primaryEventId: orderedPinnedIds.includes(eventId)
+      ? eventId
+      : orderedPinnedIds.at(-1) ?? null,
+    selectedEventIds: orderedPinnedIds,
+    rangeAnchorId: eventId,
+    pinnedEventIds: orderedPinnedIds,
+  }
+}
 
 export type SessionWorkbenchDerivedState = {
   activeAnchors: MarketAnchorView[]
@@ -50,6 +234,8 @@ export type SessionWorkbenchDerivedState = {
   realtimeViewBlock: ContentBlockRecord | null
   screenshotGallery: ScreenshotGalleryState
   selectedEvent: EventRecord | null
+  selectedEventIds: string[]
+  selectedEvents: EventRecord[]
   selectedScreenshot: ScreenshotRecord | null
   selectedScreenshotAnnotations: AnnotationRecord[]
   similarCaseViews: SimilarCaseView[]
@@ -57,7 +243,7 @@ export type SessionWorkbenchDerivedState = {
 
 export const deriveSessionWorkbenchState = (input: {
   payload: SessionWorkbenchPayload | null
-  selectedEventId: string | null
+  eventSelection: EventSelectionState
   selectedScreenshotId: string | null
   draftAnnotations: DraftAnnotation[]
   apiAnchors: MarketAnchorView[]
@@ -69,7 +255,7 @@ export const deriveSessionWorkbenchState = (input: {
 }): SessionWorkbenchDerivedState => {
   const {
     payload,
-    selectedEventId,
+    eventSelection,
     selectedScreenshotId,
     draftAnnotations,
     apiAnchors,
@@ -80,8 +266,20 @@ export const deriveSessionWorkbenchState = (input: {
     composerSuggestions,
   } = input
 
-  const selectedScreenshot = payload?.screenshots.find((shot) => shot.id === selectedScreenshotId) ?? payload?.screenshots[0] ?? null
-  const selectedEvent = payload?.events.find((event) => event.id === selectedEventId) ?? payload?.events[0] ?? null
+  const normalizedSelectedEventIds = payload ? orderEventIdsByTimeline(payload.events, eventSelection.selectedEventIds) : []
+  const selectedEvents = payload
+    ? normalizedSelectedEventIds
+      .map((eventId) => payload.events.find((event) => event.id === eventId) ?? null)
+      .filter((event): event is EventRecord => event != null)
+    : []
+  const selectedEvent = eventSelection.primaryEventId
+    ? payload?.events.find((event) => event.id === eventSelection.primaryEventId) ?? null
+    : null
+  const fallbackScreenshotId = selectedScreenshotId
+    ?? selectedEvent?.screenshot_id
+    ?? selectedEvents.find((event) => event.screenshot_id)?.screenshot_id
+    ?? null
+  const selectedScreenshot = payload?.screenshots.find((shot) => shot.id === fallbackScreenshotId) ?? payload?.screenshots[0] ?? null
   const selectedScreenshotAnnotations = selectedScreenshot?.annotations ?? []
   const deletedAnnotations = selectedScreenshot?.deleted_annotations ?? []
   const deletedScreenshots = payload?.deleted_screenshots ?? []
@@ -175,6 +373,8 @@ export const deriveSessionWorkbenchState = (input: {
     realtimeViewBlock,
     screenshotGallery,
     selectedEvent,
+    selectedEventIds: normalizedSelectedEventIds,
+    selectedEvents,
     selectedScreenshot,
     selectedScreenshotAnnotations,
     similarCaseViews,

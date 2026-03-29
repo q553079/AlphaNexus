@@ -62,3 +62,7 @@ Implementation should follow the approved plan instead of improvising broad rewr
 - 2026-03-27: [Capture AI context v1](plans/2026-03-27-capture-ai-context-v1.md)
 - 2026-03-28: [Session workbench OneNote-first layout](plans/2026-03-28-session-workbench-onenote-layout.md)
 - 2026-03-28: [Screenshot AI thread and attachments](plans/2026-03-28-screenshot-ai-thread-attachments.md)
+- 2026-03-29: [Session workbench selection and layout phase 1](plans/2026-03-29-session-workbench-selection-layout-phase1.md)
+- 2026-03-29: [Session workbench evidence flow phase 2](plans/2026-03-29-session-workbench-evidence-flow-phase2.md)
+- 2026-03-29: [Session workbench AI packet composer phase 3](plans/2026-03-29-session-workbench-ai-packet-composer-phase3.md)
+- 2026-03-30: [Session workbench review case phase 4](plans/2026-03-30-session-workbench-review-case-phase4.md)

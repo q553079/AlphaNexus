@@ -78,11 +78,40 @@ export const AiAnalysisAttachmentSchema = z.object({
   text_excerpt: attachment.text_excerpt ?? null,
 }))
 
+export const AiPacketImageRegionModeSchema = z.enum([
+  'full',
+  'selection',
+  'annotations-only',
+  'full-with-highlight',
+])
+
+export const AiPacketBackgroundTogglesSchema = z.object({
+  includeCurrentNote: z.boolean().default(true),
+  includeEventRangeSummary: z.boolean().default(true),
+  includeTradeFacts: z.boolean().default(true),
+  includeSessionSummary: z.boolean().default(false),
+  includePriorAi: z.boolean().default(false),
+})
+
+export const AiPacketPreviewSchema = z.object({
+  primaryScreenshotCount: z.number().int().nonnegative().default(0),
+  backgroundScreenshotCount: z.number().int().nonnegative().default(0),
+  eventCount: z.number().int().nonnegative().default(0),
+  includedItems: z.array(z.string().min(1)).default([]),
+  omittedItems: z.array(z.string().min(1)).default([]),
+  summary: z.string().trim().min(1).max(1000).default(''),
+})
+
 export const AiAnalysisContextInputSchema = z.object({
   analysis_session_id: EntityIdSchema.optional(),
   analysis_contract_id: EntityIdSchema.optional(),
   analysis_contract_symbol: z.string().trim().min(1).max(64).optional(),
   background_screenshot_ids: z.array(EntityIdSchema).max(8).default([]),
+  source_event_ids: z.array(EntityIdSchema).max(24).default([]),
+  image_region_mode: AiPacketImageRegionModeSchema.default('full'),
+  focus_annotation_ids: z.array(EntityIdSchema).max(24).default([]),
+  background_toggles: AiPacketBackgroundTogglesSchema.optional(),
+  packet_preview: AiPacketPreviewSchema.optional(),
   background_note_md: z.string().trim().max(4_000).optional(),
   attachments: z.array(AiAnalysisAttachmentSchema).max(6).default([]),
 })
@@ -136,6 +165,9 @@ export type PromptTemplateKind = z.infer<typeof PromptTemplateKindSchema>
 export type PromptTemplate = z.infer<typeof PromptTemplateSchema>
 export type SavePromptTemplateInput = z.infer<typeof SavePromptTemplateInputSchema>
 export type AiAnalysisAttachment = z.infer<typeof AiAnalysisAttachmentSchema>
+export type AiPacketImageRegionMode = z.infer<typeof AiPacketImageRegionModeSchema>
+export type AiPacketBackgroundToggles = z.infer<typeof AiPacketBackgroundTogglesSchema>
+export type AiPacketPreview = z.infer<typeof AiPacketPreviewSchema>
 export type AiAnalysisContextInput = z.infer<typeof AiAnalysisContextInputSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>

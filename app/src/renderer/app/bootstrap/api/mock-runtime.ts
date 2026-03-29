@@ -16,12 +16,15 @@ import {
   type GetAnchorReviewSuggestionsInput,
   type GetComposerSuggestionsInput,
   type GetCurrentContextInput,
+  type GetReviewCaseInput,
   type GetSimilarCasesInput,
+  type ListReviewCasesInput,
   type ListTargetOptionsInput,
   type MoveContentBlockInput,
   type OpenTradeInput,
   type OpenSnipCaptureInput,
   type PendingSnipCapture,
+  type ReviewCaseRecord,
   type ScreenshotMutationResult,
   type ContentBlockMutationResult,
   type PeriodReviewPayload,
@@ -30,6 +33,7 @@ import {
   type RunAnnotationSuggestionsInput,
   type RunAiAnalysisInput,
   type SavePendingSnipInput,
+  type SaveReviewCaseInput,
   type SaveSessionRealtimeViewInput,
   type SessionWorkbenchPayload,
   type SetCurrentContextInput,
@@ -216,6 +220,7 @@ let mockCaptureContext: CaptureSessionContextInput = {
   kind: mockCurrentContext.capture_kind,
 }
 let mockPendingSnip: PendingSnipCapture | null = null
+let mockReviewCases: ReviewCaseRecord[] = []
 const mockCaptureSavedListeners = new Set<(result: SavePendingSnipResult) => void>()
 const mockBucketLabels: Record<CreateSessionInput['bucket'], string> = {
   am: '上午',
@@ -3334,6 +3339,43 @@ const listMockTargetOptions = (input?: ListTargetOptionsInput): CurrentTargetOpt
   return buildMockTargetOptionsPayload(mockSessionPayloads, currentContext, input)
 }
 
+const saveMockReviewCase = (input: SaveReviewCaseInput): ReviewCaseRecord => {
+  const timestamp = new Date().toISOString()
+  const reviewCase: ReviewCaseRecord = {
+    id: `review_case_mock_${Date.now()}`,
+    schema_version: 1,
+    created_at: timestamp,
+    updated_at: timestamp,
+    source_session_id: input.source_session_id,
+    title: input.title,
+    summary_md: input.summary_md,
+    ai_summary_md: input.ai_summary_md,
+    selection_mode: input.selection_mode,
+    time_range_start: input.time_range_start ?? null,
+    time_range_end: input.time_range_end ?? null,
+    event_ids: input.event_ids,
+    screenshot_ids: input.screenshot_ids,
+    snapshot: input.snapshot ?? null,
+  }
+
+  mockReviewCases = [reviewCase, ...mockReviewCases.filter((item) => item.id !== reviewCase.id)]
+    .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+  return reviewCase
+}
+
+const getMockReviewCase = (input: GetReviewCaseInput) => {
+  const reviewCase = mockReviewCases.find((item) => item.id === input.review_case_id)
+  if (!reviewCase) {
+    throw new Error(`Missing mock review case ${input.review_case_id}.`)
+  }
+  return reviewCase
+}
+
+const listMockReviewCases = (input?: ListReviewCasesInput) =>
+  mockReviewCases
+    .filter((reviewCase) => input?.session_id ? reviewCase.source_session_id === input.session_id : true)
+    .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+
 export const mockApi: AlphaNexusApi = {
   app: {
     ping: async() => 'alpha-nexus-mock',
@@ -3405,6 +3447,9 @@ export const mockApi: AlphaNexusApi = {
     saveRealtimeView: async(input) => mutateMockRealtimeView(input),
     createNoteBlock: async(input) => mutateMockCreateNoteBlock(input),
     updateNoteBlock: async(input) => mutateMockUpdateNoteBlock(input),
+    saveReviewCase: async(input) => saveMockReviewCase(input),
+    getReviewCase: async(input) => getMockReviewCase(input),
+    listReviewCases: async(input) => listMockReviewCases(input),
     moveContentBlock: async(input) => mutateMockMoveContentBlock(input),
     reorderContentBlocks: async(input) => mutateMockReorderContentBlocks(input),
     moveScreenshot: async() => {

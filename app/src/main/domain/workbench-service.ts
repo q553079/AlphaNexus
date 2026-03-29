@@ -9,6 +9,8 @@ import {
   deleteAnnotation,
   deleteScreenshot,
   deleteContentBlock,
+  fetchReviewCase,
+  fetchReviewCases,
   fetchPeriodReview,
   fetchCurrentContext,
   fetchSessionWorkbench,
@@ -26,6 +28,7 @@ import {
   saveAiAnalysisArtifacts,
   saveAiAnalysisFailure,
   saveSessionRealtimeView,
+  saveReviewCase,
   updateAnnotation,
   updateWorkbenchNote,
 } from '@main/storage/workbench'
@@ -34,11 +37,13 @@ import type {
   CurrentContext,
   CurrentTargetOptionsPayload,
   GetCurrentContextInput,
+  GetReviewCaseInput,
   MoveScreenshotInput,
   ReorderContentBlocksInput,
   GetPeriodReviewInput,
   GetSessionWorkbenchInput,
   GetTradeDetailInput,
+  ListReviewCasesInput,
   ListTargetOptionsInput,
   MoveContentBlockInput,
   OpenTradeInput,
@@ -46,6 +51,7 @@ import type {
   CancelTradeInput,
   CloseTradeInput,
   ReduceTradeInput,
+  SaveReviewCaseInput,
   SaveSessionRealtimeViewInput,
   SetCurrentContextInput,
   SetAiRecordDeletedInput,
@@ -103,6 +109,15 @@ export const createWorkbenchNoteBlockForContext = async(paths: LocalFirstPaths, 
 
 export const updateWorkbenchNoteBlockContent = async(paths: LocalFirstPaths, input: UpdateWorkbenchNoteBlockInput) =>
   updateWorkbenchNote(paths, input)
+
+export const saveWorkbenchReviewCase = async(paths: LocalFirstPaths, input: SaveReviewCaseInput) =>
+  saveReviewCase(paths, input)
+
+export const getWorkbenchReviewCase = async(paths: LocalFirstPaths, input: GetReviewCaseInput) =>
+  fetchReviewCase(paths, input)
+
+export const listWorkbenchReviewCases = async(paths: LocalFirstPaths, input?: ListReviewCasesInput) =>
+  fetchReviewCases(paths, input)
 
 export const reorderWorkbenchNoteBlocks = async(paths: LocalFirstPaths, input: ReorderContentBlocksInput) =>
   reorderWorkbenchNotes(paths, input)

@@ -53,3 +53,8 @@ export {
   TRADE_REVIEW_DRAFT_TITLE,
   upsertTradeReviewDraftBlock,
 } from '@main/db/repositories/workbench-review-drafts'
+export {
+  createReviewCase,
+  listReviewCasesBySession,
+  loadReviewCaseById,
+} from '@main/db/repositories/workbench-review-cases'

@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 import { buildAnnotationKey } from '@app/features/anchors'
 import type { DraftAnnotation } from '@app/features/annotation/annotation-types'
-import type { AiAnalysisAttachment } from '@shared/ai/contracts'
+import type { AiAnalysisAttachment, AiAnalysisContextInput } from '@shared/ai/contracts'
 import {
   renderAnnotatedImageDataUrl,
   serializeAnnotationDocument,
@@ -200,7 +200,11 @@ export const createSessionWorkbenchActions = ({
     }
   }
 
-  const handleRunAnalysisForScreenshot = async(screenshotId: string) => {
+  const handleRunAnalysisWithContext = async(input: {
+    analysisContext?: AiAnalysisContextInput
+    screenshotId: string | null
+    successMessagePrefix?: string
+  }) => {
     if (!payload) {
       return null
     }
@@ -209,7 +213,9 @@ export const createSessionWorkbenchActions = ({
       setBusy(true)
       return await runPreferredAnalysis({
         sessionPayload: payload,
-        screenshotId,
+        screenshotId: input.screenshotId,
+        analysisContext: input.analysisContext,
+        successMessagePrefix: input.successMessagePrefix,
       })
     } catch (error) {
       setMessage(error instanceof Error ? `运行失败：${error.message}` : '运行 AI 分析失败。')
@@ -217,6 +223,12 @@ export const createSessionWorkbenchActions = ({
     } finally {
       setBusy(false)
     }
+  }
+
+  const handleRunAnalysisForScreenshot = async(screenshotId: string) => {
+    return handleRunAnalysisWithContext({
+      screenshotId,
+    })
   }
 
   const handleRunAnalysisFollowUpForScreenshot = async(input: {
@@ -229,12 +241,13 @@ export const createSessionWorkbenchActions = ({
     }
 
     try {
-      setBusy(true)
-      return await runPreferredAnalysis({
-        sessionPayload: payload,
+      return await handleRunAnalysisWithContext({
         screenshotId: input.screenshotId,
         analysisContext: {
           background_screenshot_ids: [],
+          source_event_ids: [],
+          image_region_mode: 'full',
+          focus_annotation_ids: [],
           background_note_md: input.backgroundNoteMd,
           attachments: input.attachments ?? [],
         },
@@ -243,8 +256,6 @@ export const createSessionWorkbenchActions = ({
     } catch (error) {
       setMessage(error instanceof Error ? `追问失败：${error.message}` : '继续追问失败。')
       return null
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -820,6 +831,7 @@ export const createSessionWorkbenchActions = ({
     handleRestoreBlock,
     handleRestoreScreenshot,
     handleRunAnalysis,
+    handleRunAnalysisWithContext,
     handleRunAnalysisForScreenshot,
     handleRunAnalysisFollowUpForScreenshot,
     handleRunAnalysisAcrossProviders,
