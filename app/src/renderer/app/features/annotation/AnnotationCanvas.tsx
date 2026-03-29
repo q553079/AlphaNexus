@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { SectionCard } from '@app/components/SectionCard'
 import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
 import {
   toPendingDraftAnnotation,
@@ -35,10 +34,7 @@ export const AnnotationCanvas = ({
   }
 
   return (
-    <SectionCard
-      subtitle="直接在图表上拖拽创建矩形、圆形、线段、箭头或文本标注。"
-      title="图像 / 内容画布"
-    >
+    <div className="annotation-canvas">
       {screenshot ? (
         <CaptureEditorSurface
           activeAnnotationIndex={activeAnnotationIndex}
@@ -48,6 +44,7 @@ export const AnnotationCanvas = ({
           imageUrl={screenshot.raw_asset_url}
           onActiveAnnotationIndexChange={setActiveAnnotationIndex}
           onAnnotationsChange={handleAnnotationsChange}
+          revisionKey={`${screenshot.id}:${screenshot.updated_at}:${screenshot.annotations.length}`}
           selection={null}
           sourceHeight={screenshot.height}
           sourceWidth={screenshot.width}
@@ -55,6 +52,6 @@ export const AnnotationCanvas = ({
       ) : (
         <div className="empty-state">选择或导入一张截图后即可开始标注。</div>
       )}
-    </SectionCard>
+    </div>
   )
 }

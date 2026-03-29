@@ -9,8 +9,10 @@ const loadWorkspaceFile = async(relativePath) => {
 }
 
 test('preload/main contract regression keeps workbench, capture, AI template, and knowledge IPCs aligned', async() => {
-  const [sharedContracts, aiContracts, captureContracts, preloadBridge, workbenchIpc, launcherIpc, knowledgeIpc, aiIpc, captureIpc] = await Promise.all([
+  const [sharedContracts, contentContracts, periodContracts, aiContracts, captureContracts, preloadBridge, workbenchIpc, launcherIpc, knowledgeIpc, aiIpc, captureIpc] = await Promise.all([
     loadWorkspaceFile('src/shared/contracts/workbench.ts'),
+    loadWorkspaceFile('src/shared/contracts/content.ts'),
+    loadWorkspaceFile('src/shared/contracts/period-review.ts'),
     loadWorkspaceFile('src/shared/ai/contracts.ts'),
     loadWorkspaceFile('src/shared/capture/contracts.ts'),
     loadWorkspaceFile('src/preload/index.ts'),
@@ -22,17 +24,38 @@ test('preload/main contract regression keeps workbench, capture, AI template, an
   ])
 
   assert.match(sharedContracts, /createNoteBlock:\s*\(input: CreateWorkbenchNoteBlockInput\)/)
+  assert.match(sharedContracts, /event_id: EntityIdSchema\.nullable\(\)\.optional\(\)/)
   assert.match(sharedContracts, /updateNoteBlock:\s*\(input: UpdateWorkbenchNoteBlockInput\)/)
   assert.match(sharedContracts, /reorderContentBlocks:\s*\(input: ReorderContentBlocksInput\)/)
   assert.match(sharedContracts, /moveScreenshot:\s*\(input: MoveScreenshotInput\)/)
   assert.match(sharedContracts, /updateAnnotation:\s*\(input: UpdateAnnotationInput\)/)
   assert.match(sharedContracts, /cancelTrade:\s*\(input: CancelTradeInput\)/)
+  assert.match(sharedContracts, /period_rollup:\s*PeriodRollupSchema/)
+  assert.match(sharedContracts, /trade_metrics:\s*z\.array\(PeriodTradeMetricSchema\)/)
+  assert.match(sharedContracts, /latest_period_ai_review:\s*PeriodReviewAiRecordSchema\.nullable\(\)/)
+  assert.match(sharedContracts, /ai_quality_summary:\s*PeriodAiQualitySummarySchema/)
   assert.match(sharedContracts, /continueSession:\s*\(input: z\.infer<typeof ContinueSessionInputSchema>\)/)
   assert.match(sharedContracts, /reviewCard:\s*\(input: ReviewKnowledgeCardInput\)/)
+  assert.match(periodContracts, /PeriodRollupSchema = z\.object\(/)
+  assert.match(periodContracts, /PeriodTradeMetricSchema = z\.object\(/)
+  assert.match(periodContracts, /PeriodAiQualitySummarySchema = z\.object\(/)
   assert.match(aiContracts, /PromptTemplateSchema = z\.object\(/)
+  assert.match(aiContracts, /PeriodReviewDraftSchema = z\.object\(/)
+  assert.match(aiContracts, /AiAnalysisAttachmentSchema = z\.object\(/)
+  assert.match(aiContracts, /AiAnalysisContextInputSchema = z\.object\(/)
   assert.match(aiContracts, /SavePromptTemplateInputSchema = z\.object\(/)
+  assert.match(aiContracts, /period_id: EntityIdSchema\.optional\(\)/)
+  assert.match(aiContracts, /analysis_context: AiAnalysisContextInputSchema\.optional\(\)/)
+  assert.match(aiContracts, /attachments: z\.array\(AiAnalysisAttachmentSchema\)\.max\(6\)\.default\(\[\]\)/)
   assert.match(captureContracts, /CapturePreferencesSchema = z\.object\(/)
   assert.match(captureContracts, /PasteClipboardImageInputSchema = z\.object\(/)
+  assert.match(captureContracts, /CaptureScreenshotBackgroundInputSchema = z\.object\(/)
+  assert.match(captureContracts, /screenshot_background: CaptureScreenshotBackgroundInputSchema\.optional\(\)/)
+  assert.match(captureContracts, /analysis_context: AiAnalysisContextInputSchema\.optional\(\)/)
+  assert.match(contentContracts, /analysis_role: ScreenshotAnalysisRoleSchema\.default\('event'\)/)
+  assert.match(contentContracts, /background_layer: ScreenshotBackgroundLayerSchema\.nullable\(\)\.default\(null\)/)
+  assert.match(contentContracts, /'brush'/)
+  assert.match(contentContracts, /'fib_retracement'/)
 
   assert.match(preloadBridge, /continueSession:\s*\(input: ContinueSessionInput\)\s*=> ipcRenderer\.invoke\('launcher:continue-session', input\)/)
   assert.match(preloadBridge, /createNoteBlock:\s*\(input\)\s*=> ipcRenderer\.invoke\('workbench:create-note-block', input\)/)

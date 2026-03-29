@@ -133,6 +133,16 @@
   color: #f6f4ee;
 }
 
+.capture-overlay-composer select.inline-input {
+  color-scheme: dark;
+}
+
+.capture-overlay-composer select.inline-input option,
+.capture-overlay-composer select.inline-input optgroup {
+  color: #20312f;
+  background: #f6f4ee;
+}
+
 .capture-overlay-composer .inline-input::placeholder {
   color: rgba(255, 255, 255, 0.38);
 }

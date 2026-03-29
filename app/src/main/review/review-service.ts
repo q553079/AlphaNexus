@@ -3,6 +3,11 @@ import { getDatabase } from '@main/db/connection'
 import { loadTradeDetail, upsertTradeReviewDraftBlock } from '@main/db/repositories/workbench-repository'
 import { getPeriodEvaluationRollup } from '@main/evaluation/evaluation-service'
 import { getPeriodFeedbackBundle } from '@main/feedback/feedback-service'
+import {
+  getLatestPeriodReviewAiRecord,
+  getPeriodAiQualitySummary,
+} from '@main/period/period-ai-quality-service'
+import { buildPeriodRollupBundle } from '@main/period/period-rollup-service'
 import { getTrainingInsights, getUserProfileSnapshot } from '@main/profile/profile-service'
 import { getPeriodRuleRollup } from '@main/rules/rules-service'
 import type {
@@ -410,15 +415,50 @@ export const ensureTradeReviewDraft = async(paths: LocalFirstPaths, tradeId: str
 }
 
 export const getPeriodReviewInsights = async(paths: LocalFirstPaths, periodId?: string) => {
-  const [evaluation_rollup, feedback, rule_rollup, profile_snapshot, training_insights] = await Promise.all([
-    getPeriodEvaluationRollup(paths, periodId),
-    getPeriodFeedbackBundle(paths, periodId),
-    getPeriodRuleRollup(paths, periodId),
-    getUserProfileSnapshot(paths, periodId),
-    getTrainingInsights(paths, periodId),
+  const baseBundle = await buildPeriodRollupBundle(paths, {
+    period_id: periodId,
+    latest_period_review: null,
+  })
+  const resolvedPeriodId = baseBundle.rollup.period.id
+  const [latestPeriodAiReview, evaluation_rollup, ai_quality_summary] = await Promise.all([
+    getLatestPeriodReviewAiRecord(paths, resolvedPeriodId),
+    getPeriodEvaluationRollup(paths, resolvedPeriodId),
+    getPeriodAiQualitySummary(paths, resolvedPeriodId),
+  ])
+  const period_rollup = {
+    ...baseBundle.rollup,
+    latest_period_review_ai_run_id: latestPeriodAiReview?.ai_run.id ?? null,
+    latest_period_review_generated_at: latestPeriodAiReview?.ai_run.created_at ?? null,
+  }
+  const trade_metrics = baseBundle.trade_metrics
+  const [feedback, rule_rollup] = await Promise.all([
+    getPeriodFeedbackBundle(paths, resolvedPeriodId, {
+      evaluation_rollup,
+      period_rollup,
+      trade_metrics,
+    }),
+    getPeriodRuleRollup(paths, resolvedPeriodId),
+  ])
+  const [profile_snapshot, training_insights] = await Promise.all([
+    getUserProfileSnapshot(paths, resolvedPeriodId, {
+      evaluation_rollup,
+      feedback_bundle: feedback,
+      period_rollup,
+      trade_metrics,
+    }),
+    getTrainingInsights(paths, resolvedPeriodId, {
+      evaluation_rollup,
+      feedback_bundle: feedback,
+      period_rollup,
+      trade_metrics,
+    }),
   ])
 
   return {
+    period_rollup,
+    trade_metrics,
+    latest_period_ai_review: latestPeriodAiReview,
+    ai_quality_summary,
     evaluation_rollup,
     feedback_items: feedback.feedback_items,
     rule_rollup,

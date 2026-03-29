@@ -10,6 +10,7 @@ import {
 } from '@app/ui/display-text'
 
 type EventStreamCardProps = {
+  directoryLabel?: string
   dimmed?: boolean
   event: EventRecord
   highlighted?: boolean
@@ -23,12 +24,13 @@ type EventStreamCardProps = {
 }
 
 const signalLabels = {
-  trade: 'Strong Signal',
-  exit: 'Exit',
-  review: 'Review',
+  trade: '关键交易',
+  exit: '离场图',
+  review: '复盘',
 } as const
 
 export const EventStreamCard = ({
+  directoryLabel,
   dimmed,
   event,
   highlighted,
@@ -42,10 +44,10 @@ export const EventStreamCard = ({
 }: EventStreamCardProps) => {
   const relationPills = [
     trade ? { key: 'trade', label: formatTradeBadgeLabel(trade), tone: 'trade' } : null,
-    event.screenshot_id ? { key: 'screenshot', label: `${translateCaptureKind(screenshotKind ?? 'chart')} Screenshot`, tone: screenshotKind === 'exit' ? 'exit' : 'screenshot' } : null,
-    event.ai_run_id ? { key: 'ai', label: 'AI Linked', tone: 'ai' } : null,
-    event.content_block_ids.length > 0 ? { key: 'notes', label: `Notes ${event.content_block_ids.length}`, tone: 'notes' } : null,
-    event.event_type === 'review' ? { key: 'review', label: 'Review Linked', tone: 'review' } : null,
+    event.screenshot_id ? { key: 'screenshot', label: `${translateCaptureKind(screenshotKind ?? 'chart')}截图`, tone: screenshotKind === 'exit' ? 'exit' : 'screenshot' } : null,
+    event.ai_run_id ? { key: 'ai', label: '关联 AI', tone: 'ai' } : null,
+    event.content_block_ids.length > 0 ? { key: 'notes', label: `笔记 ${event.content_block_ids.length}`, tone: 'notes' } : null,
+    event.event_type === 'review' ? { key: 'review', label: '关联复盘', tone: 'review' } : null,
   ].filter(Boolean) as Array<{ key: string, label: string, tone: string }>
 
   return (
@@ -71,8 +73,9 @@ export const EventStreamCard = ({
           </div>
           <span>{formatTime(event.occurred_at)}</span>
         </div>
-        <strong>{event.title}</strong>
-        <p>{event.summary}</p>
+        <strong>{directoryLabel ?? event.title}</strong>
+        {directoryLabel ? <p className="event-card__directory-meta">{translateEventType(event.event_type)}</p> : null}
+        <p>{event.summary || '这条事件还没有补充摘要。'}</p>
         {relationPills.length > 0 ? (
           <div className="event-card__relations">
             {relationPills.map((pill) => (
@@ -104,7 +107,7 @@ export const EventStreamCard = ({
                 onClick={onOpenTrade}
                 type="button"
               >
-                打开 Trade Thread
+                打开交易详情
               </button>
             ) : null}
           </div>

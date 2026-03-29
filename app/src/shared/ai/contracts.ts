@@ -38,6 +38,15 @@ export const TradeReviewDraftSchema = z.object({
   deep_analysis_md: z.string().min(1),
 })
 
+export const PeriodReviewDraftSchema = z.object({
+  summary_short: z.string().min(1),
+  strengths: z.array(z.string().min(1)).min(1).max(6),
+  mistakes: z.array(z.string().min(1)).min(1).max(6),
+  recurring_patterns: z.array(z.string().min(1)).min(1).max(6),
+  action_items: z.array(z.string().min(1)).min(1).max(6),
+  deep_analysis_md: z.string().min(1),
+})
+
 export const PromptTemplateKindSchema = z.enum(['market-analysis', 'trade-review', 'period-review'])
 
 export const PromptTemplateSchema = z.object({
@@ -54,20 +63,48 @@ export const SavePromptTemplateInputSchema = z.object({
   runtime_notes: z.string().max(8_000),
 })
 
+export const AiAnalysisAttachmentSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  kind: z.enum(['image', 'document']),
+  name: z.string().trim().min(1).max(240),
+  mime_type: z.string().trim().min(1).max(160).nullable().optional(),
+  size_bytes: z.number().int().nonnegative().nullable().optional(),
+  data_url: z.string().min(1).optional(),
+  text_excerpt: z.string().trim().max(8_000).nullable().optional(),
+}).transform((attachment) => ({
+  ...attachment,
+  mime_type: attachment.mime_type ?? null,
+  size_bytes: attachment.size_bytes ?? null,
+  text_excerpt: attachment.text_excerpt ?? null,
+}))
+
+export const AiAnalysisContextInputSchema = z.object({
+  analysis_session_id: EntityIdSchema.optional(),
+  analysis_contract_id: EntityIdSchema.optional(),
+  analysis_contract_symbol: z.string().trim().min(1).max(64).optional(),
+  background_screenshot_ids: z.array(EntityIdSchema).max(8).default([]),
+  background_note_md: z.string().trim().max(4_000).optional(),
+  attachments: z.array(AiAnalysisAttachmentSchema).max(6).default([]),
+})
+
 export const RunAiAnalysisInputSchema = z.object({
   session_id: EntityIdSchema,
+  period_id: EntityIdSchema.optional(),
   screenshot_id: EntityIdSchema.nullable().optional(),
   trade_id: EntityIdSchema.nullable().optional(),
   provider: AiProviderKindSchema.default('deepseek'),
   prompt_kind: z.enum(['market-analysis', 'trade-review', 'period-review']).default('market-analysis'),
+  analysis_context: AiAnalysisContextInputSchema.optional(),
 })
 
 export const RunMockAiAnalysisInputSchema = z.object({
   session_id: EntityIdSchema,
+  period_id: EntityIdSchema.optional(),
   screenshot_id: EntityIdSchema.nullable().optional(),
   trade_id: EntityIdSchema.nullable().optional(),
   provider: AiProviderKindSchema.default('deepseek'),
   prompt_kind: z.enum(['market-analysis', 'trade-review', 'period-review']).default('market-analysis'),
+  analysis_context: AiAnalysisContextInputSchema.optional(),
 })
 
 export const SaveAiProviderConfigInputSchema = z.object({
@@ -94,9 +131,12 @@ export const AiRunExecutionResultSchema = z.object({
 export type AiProviderConfig = z.infer<typeof AiProviderConfigSchema>
 export type AiAnalysisDraft = z.infer<typeof AiAnalysisDraftSchema>
 export type TradeReviewDraft = z.infer<typeof TradeReviewDraftSchema>
+export type PeriodReviewDraft = z.infer<typeof PeriodReviewDraftSchema>
 export type PromptTemplateKind = z.infer<typeof PromptTemplateKindSchema>
 export type PromptTemplate = z.infer<typeof PromptTemplateSchema>
 export type SavePromptTemplateInput = z.infer<typeof SavePromptTemplateInputSchema>
+export type AiAnalysisAttachment = z.infer<typeof AiAnalysisAttachmentSchema>
+export type AiAnalysisContextInput = z.infer<typeof AiAnalysisContextInputSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
 export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>

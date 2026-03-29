@@ -13,6 +13,7 @@ import type { AiProviderConfig, AiRunExecutionResult } from '@shared/ai/contract
 import type { CurrentContext } from '@shared/contracts/current-context'
 import {
   SavePendingSnipResultSchema,
+  type CaptureScreenshotBackgroundInput,
   type CaptureTargetResolution,
   type PendingSnipAnnotationInput,
   type PendingSnipCapture,
@@ -216,6 +217,29 @@ export type ResolvedSaveTarget = {
   resolution_note: string | null
 }
 
+const normalizeScreenshotBackground = (
+  sessionId: string,
+  background?: CaptureScreenshotBackgroundInput,
+) => {
+  if (!background || background.analysis_role !== 'background') {
+    return {
+      analysis_role: 'event' as const,
+      analysis_session_id: null,
+      background_layer: null,
+      background_label: null,
+      background_note_md: '',
+    }
+  }
+
+  return {
+    analysis_role: 'background' as const,
+    analysis_session_id: background.analysis_session_id ?? sessionId,
+    background_layer: background.background_layer ?? 'custom',
+    background_label: background.background_label?.trim() || null,
+    background_note_md: background.background_note_md?.trim() || '',
+  }
+}
+
 export const resolvePendingSaveTarget = async(
   paths: LocalFirstPaths,
   pendingCapture: PendingSnipCapture,
@@ -289,6 +313,7 @@ export const persistSnipSelection = async(
     annotated_image_data_url?: string
     annotation_document_json?: string
   },
+  screenshotBackground?: CaptureScreenshotBackgroundInput,
 ): Promise<SavePendingSnipResult> => {
   const targetPath = await buildCaptureAssetPath(paths, saveTarget.session_id, '.png')
   await writeFile(targetPath, image.toPNG())
@@ -296,6 +321,7 @@ export const persistSnipSelection = async(
     annotated_image_data_url: derivedAssets?.annotated_image_data_url,
     annotation_document_json: derivedAssets?.annotation_document_json,
   })
+  const normalizedBackground = normalizeScreenshotBackground(saveTarget.session_id, screenshotBackground)
 
   const db = await getDatabase(paths)
   const created = createCapturedScreenshotArtifactsForContext(db, {
@@ -313,6 +339,11 @@ export const persistSnipSelection = async(
     width: image.getSize().width,
     height: image.getSize().height,
     note_text: noteText,
+    analysis_role: normalizedBackground.analysis_role,
+    analysis_session_id: normalizedBackground.analysis_session_id,
+    background_layer: normalizedBackground.background_layer,
+    background_label: normalizedBackground.background_label,
+    background_note_md: normalizedBackground.background_note_md,
     annotations: annotations?.map((annotation) => ({
       ...annotation,
       deleted_at: null,

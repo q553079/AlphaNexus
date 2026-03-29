@@ -6,7 +6,14 @@ export type AnnotationSuggestionView = {
   label: string
   title?: string
   semantic_type: string
-  shape: 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text'
+  shape:
+    | 'rectangle'
+    | 'ellipse'
+    | 'line'
+    | 'arrow'
+    | 'text'
+    | 'brush'
+    | 'fib_retracement'
   color: string
   x1: number
   y1: number

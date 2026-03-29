@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   AiRunExecutionResultSchema,
   AiProviderConfigSchema,
+  PeriodReviewDraftSchema,
   PromptTemplateSchema,
   TradeReviewDraftSchema,
   MockAiRunResultSchema,
@@ -60,6 +61,12 @@ import {
   UserProfileSchema,
 } from '@shared/contracts/evaluation'
 import { EventSchema } from '@shared/contracts/event'
+import {
+  PeriodAiQualitySummarySchema,
+  PeriodReviewAiRecordSchema,
+  PeriodRollupSchema,
+  PeriodTradeMetricSchema,
+} from '@shared/contracts/period-review'
 import { PeriodSchema, SessionSchema, ContractSchema } from '@shared/contracts/session'
 import { EvaluationSchema, TradeSchema } from '@shared/contracts/trade'
 import { ExportSessionMarkdownInputSchema, SessionMarkdownExportSchema } from '@shared/export/contracts'
@@ -242,7 +249,11 @@ export const PeriodReviewPayloadSchema = z.object({
   period: PeriodSchema,
   contract: ContractSchema,
   sessions: z.array(SessionSchema),
+  period_rollup: PeriodRollupSchema,
+  trade_metrics: z.array(PeriodTradeMetricSchema),
   highlight_cards: z.array(AnalysisCardSchema),
+  latest_period_ai_review: PeriodReviewAiRecordSchema.nullable(),
+  ai_quality_summary: PeriodAiQualitySummarySchema,
   evaluations: z.array(EvaluationSchema),
   content_blocks: z.array(ContentBlockSchema).default([]),
   evaluation_rollup: PeriodEvaluationRollupSchema,
@@ -262,6 +273,7 @@ export const SaveSessionRealtimeViewInputSchema = z.object({
 export const CreateWorkbenchNoteBlockInputSchema = z.object({
   session_id: EntityIdSchema,
   trade_id: EntityIdSchema.nullable().optional(),
+  event_id: EntityIdSchema.nullable().optional(),
   title: z.string().trim().min(1).max(120).default('用户笔记'),
   content_md: z.string().default(''),
 })
@@ -510,6 +522,7 @@ export type SavePendingSnipInput = z.infer<typeof SavePendingSnipInputSchema>
 export type PasteClipboardImageInput = z.infer<typeof PasteClipboardImageInputSchema>
 export type RunAiAnalysisInput = z.infer<typeof RunAiAnalysisInputSchema>
 export type RunMockAiAnalysisInput = z.infer<typeof RunMockAiAnalysisInputSchema>
+export type PeriodReviewDraft = z.infer<typeof PeriodReviewDraftSchema>
 export type PromptTemplate = z.infer<typeof PromptTemplateSchema>
 export type SavePromptTemplateInput = z.infer<typeof SavePromptTemplateInputSchema>
 export type SaveAiProviderConfigInput = z.infer<typeof SaveAiProviderConfigInputSchema>

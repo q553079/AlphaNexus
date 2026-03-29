@@ -1,5 +1,6 @@
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getDatabase } from '@main/db/connection'
+import { loadPeriodRecord } from '@main/period/period-record-service'
 import type {
   CalibrationBucket,
   ComparisonMetric,
@@ -61,6 +62,44 @@ const loadTradeContextRow = (db: ReturnType<typeof getDatabase> extends Promise<
   `).get(tradeId) as SessionTradeRow | undefined
 
 const loadPeriodRows = (db: ReturnType<typeof getDatabase> extends Promise<infer T> ? T : never, periodId?: string) => {
+  if (!periodId) {
+    const rows = db.prepare(`
+    SELECT
+      s.id AS session_id,
+      s.title AS session_title,
+      s.market_bias,
+      s.tags_json AS session_tags_json,
+      t.id AS trade_id,
+      t.side AS trade_side,
+      t.status AS trade_status,
+      t.pnl_r,
+      e.score,
+      e.note_md,
+      a.confidence_pct,
+      a.bias AS ai_bias
+    FROM trades t
+    INNER JOIN sessions s ON s.id = t.session_id
+    LEFT JOIN evaluations e ON e.trade_id = t.id AND e.deleted_at IS NULL
+    LEFT JOIN analysis_cards a ON a.id = (
+      SELECT ac.id
+      FROM analysis_cards ac
+      INNER JOIN ai_runs ar ON ar.id = ac.ai_run_id
+      WHERE ac.trade_id = t.id
+        AND ac.deleted_at IS NULL
+        AND ar.deleted_at IS NULL
+        AND ar.prompt_kind = 'market-analysis'
+      ORDER BY ac.created_at DESC
+      LIMIT 1
+    )
+    WHERE s.deleted_at IS NULL
+      AND t.deleted_at IS NULL
+    ORDER BY s.started_at ASC, t.opened_at ASC
+  `).all() as SessionTradeRow[]
+
+    return rows
+  }
+
+  const period = loadPeriodRecord(db, periodId)
   const rows = db.prepare(`
     SELECT
       s.id AS session_id,
@@ -91,9 +130,10 @@ const loadPeriodRows = (db: ReturnType<typeof getDatabase> extends Promise<infer
     )
     WHERE s.deleted_at IS NULL
       AND t.deleted_at IS NULL
-      AND (? IS NULL OR s.period_id = ?)
+      AND datetime(s.started_at) >= datetime(?)
+      AND datetime(s.started_at) <= datetime(?)
     ORDER BY s.started_at ASC, t.opened_at ASC
-  `).all(periodId ?? null, periodId ?? null) as SessionTradeRow[]
+  `).all(period.start_at, period.end_at) as SessionTradeRow[]
 
   return rows
 }
@@ -223,7 +263,10 @@ const buildErrorPatterns = (rows: SessionTradeRow[]): PatternInsight[] => {
 
 const buildEffectiveKnowledge = async(paths: LocalFirstPaths, periodId?: string): Promise<EffectiveKnowledgeInsight[]> => {
   const db = await getDatabase(paths)
-  const rows = db.prepare(`
+  const rows = periodId
+    ? (() => {
+      const period = loadPeriodRecord(db, periodId)
+      return db.prepare(`
     SELECT
       g.knowledge_card_id,
       COUNT(*) AS hit_count,
@@ -232,11 +275,31 @@ const buildEffectiveKnowledge = async(paths: LocalFirstPaths, periodId?: string)
     FROM knowledge_groundings g
     LEFT JOIN sessions s ON s.id = g.session_id
     LEFT JOIN knowledge_cards k ON k.id = g.knowledge_card_id
-    WHERE (? IS NULL OR s.period_id = ?)
+    WHERE datetime(s.started_at) >= datetime(?)
+      AND datetime(s.started_at) <= datetime(?)
     GROUP BY g.knowledge_card_id
     ORDER BY hit_count DESC, avg_relevance DESC
     LIMIT 6
-  `).all(periodId ?? null, periodId ?? null) as Array<{
+  `).all(period.start_at, period.end_at) as Array<{
+        knowledge_card_id: string
+        hit_count: number
+        avg_relevance: number | null
+        title: string | null
+      }>
+    })()
+    : db.prepare(`
+    SELECT
+      g.knowledge_card_id,
+      COUNT(*) AS hit_count,
+      AVG(g.relevance_score) AS avg_relevance,
+      MAX(k.title) AS title
+    FROM knowledge_groundings g
+    LEFT JOIN sessions s ON s.id = g.session_id
+    LEFT JOIN knowledge_cards k ON k.id = g.knowledge_card_id
+    GROUP BY g.knowledge_card_id
+    ORDER BY hit_count DESC, avg_relevance DESC
+    LIMIT 6
+  `).all() as Array<{
     knowledge_card_id: string
     hit_count: number
     avg_relevance: number | null

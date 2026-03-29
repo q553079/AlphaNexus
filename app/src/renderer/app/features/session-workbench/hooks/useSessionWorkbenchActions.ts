@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 import { buildAnnotationKey } from '@app/features/anchors'
 import type { DraftAnnotation } from '@app/features/annotation/annotation-types'
+import type { AiAnalysisAttachment } from '@shared/ai/contracts'
 import {
   renderAnnotatedImageDataUrl,
   serializeAnnotationDocument,
@@ -11,9 +12,10 @@ import type { ComposerSuggestion } from '@app/features/composer/types'
 import type { AnnotationRecord, ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
 import type { EventRecord } from '@shared/contracts/event'
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
+import type { RunAiAnalysisInput } from '@shared/ai/contracts'
 import type { WorkbenchTab } from '../session-workbench-types'
 import {
-  pickPreferredAnalysisProvider,
+  pickPreferredAnalysisProviderForInput,
   toAnchorSemanticType,
   toDraftAnnotation,
 } from '../modules/session-workbench-mappers'
@@ -51,6 +53,53 @@ export const createSessionWorkbenchActions = ({
   setSelectedEventId,
   setSelectedScreenshotId,
 }: SessionWorkbenchActionDeps) => {
+  const runPreferredAnalysis = async(input?: {
+    analysisContext?: RunAiAnalysisInput['analysis_context']
+    sessionPayload?: SessionWorkbenchPayload | null
+    screenshotId?: string | null
+    successMessagePrefix?: string
+  }) => {
+    const sessionPayload = input?.sessionPayload ?? payload
+    if (!sessionPayload) {
+      throw new Error('当前没有可用的工作过程。')
+    }
+
+    const providers = await alphaNexusApi.ai.listProviders()
+    const preferredProvider = pickPreferredAnalysisProviderForInput(providers, {
+      analysis_context: input?.analysisContext,
+    })
+    if (!preferredProvider) {
+      throw new Error('当前没有已启用且已配置完成的 AI provider。请先到设置页启用并配置一个 provider。')
+    }
+
+    const result = await alphaNexusApi.ai.runAnalysis({
+      session_id: sessionPayload.session.id,
+      screenshot_id: input?.screenshotId ?? selectedScreenshot?.id ?? null,
+      trade_id: sessionPayload.current_context.trade_id ?? null,
+      provider: preferredProvider.provider,
+      prompt_kind: 'market-analysis',
+      analysis_context: input?.analysisContext,
+    })
+
+    const nextPayload = await refreshSession(sessionPayload.session.id)
+    if (nextPayload) {
+      await reloadGroundings(nextPayload, result.ai_run.id)
+    }
+
+    setSelectedEventId(result.event.id)
+    if (result.event.screenshot_id) {
+      setSelectedScreenshotId(result.event.screenshot_id)
+    }
+    setActiveTab('ai')
+    setMessage(
+      input?.successMessagePrefix
+        ? `${input.successMessagePrefix}${result.analysis_card.summary_short}`
+        : `${preferredProvider.label} 已参考当前页：${result.analysis_card.summary_short}`,
+    )
+
+    return result
+  }
+
   const handleImportScreenshot = async() => {
     if (!payload) {
       return
@@ -140,29 +189,60 @@ export const createSessionWorkbenchActions = ({
 
     try {
       setBusy(true)
-      const providers = await alphaNexusApi.ai.listProviders()
-      const preferredProvider = pickPreferredAnalysisProvider(providers)
-      if (!preferredProvider) {
-        throw new Error('当前没有已启用且已配置完成的 AI provider。请先到设置页启用并配置一个 provider。')
-      }
-      const result = await alphaNexusApi.ai.runAnalysis({
-        session_id: payload.session.id,
-        screenshot_id: selectedScreenshot?.id ?? null,
-        provider: preferredProvider.provider,
-        prompt_kind: 'market-analysis',
+      await runPreferredAnalysis({
+        sessionPayload: payload,
+        screenshotId: selectedScreenshot?.id ?? null,
       })
-      const nextPayload = await refreshSession(payload.session.id)
-      if (nextPayload) {
-        await reloadGroundings(nextPayload, result.ai_run.id)
-      }
-      setSelectedEventId(result.event.id)
-      if (result.event.screenshot_id) {
-        setSelectedScreenshotId(result.event.screenshot_id)
-      }
-      setActiveTab('ai')
-      setMessage(`${preferredProvider.label} 分析已完成：${result.analysis_card.summary_short}`)
     } catch (error) {
       setMessage(error instanceof Error ? `运行失败：${error.message}` : '运行 AI 分析失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRunAnalysisForScreenshot = async(screenshotId: string) => {
+    if (!payload) {
+      return null
+    }
+
+    try {
+      setBusy(true)
+      return await runPreferredAnalysis({
+        sessionPayload: payload,
+        screenshotId,
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? `运行失败：${error.message}` : '运行 AI 分析失败。')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRunAnalysisFollowUpForScreenshot = async(input: {
+    attachments?: AiAnalysisAttachment[]
+    backgroundNoteMd: string
+    screenshotId: string
+  }) => {
+    if (!payload) {
+      return null
+    }
+
+    try {
+      setBusy(true)
+      return await runPreferredAnalysis({
+        sessionPayload: payload,
+        screenshotId: input.screenshotId,
+        analysisContext: {
+          background_screenshot_ids: [],
+          background_note_md: input.backgroundNoteMd,
+          attachments: input.attachments ?? [],
+        },
+        successMessagePrefix: '已结合当前笔记继续追问：',
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? `追问失败：${error.message}` : '继续追问失败。')
+      return null
     } finally {
       setBusy(false)
     }
@@ -248,7 +328,37 @@ export const createSessionWorkbenchActions = ({
     }
   }
 
+  const handleSaveRealtimeViewAndRunAnalysis = async() => {
+    if (!payload) {
+      return
+    }
+
+    const activeScreenshotId = selectedScreenshot?.id ?? null
+
+    try {
+      setBusy(true)
+      await alphaNexusApi.workbench.saveRealtimeView({
+        session_id: payload.session.id,
+        trade_id: payload.current_context.trade_id ?? null,
+        content_md: realtimeDraft,
+      })
+      const nextPayload = await refreshSession(payload.session.id)
+      await runPreferredAnalysis({
+        sessionPayload: nextPayload ?? payload,
+        screenshotId: activeScreenshotId,
+        successMessagePrefix: payload.current_context.trade_id
+          ? '已保存到当前交易，并完成 AI 参考：'
+          : '已保存到当前工作过程，并完成 AI 参考：',
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? `保存并参考失败：${error.message}` : '保存并参考 AI 失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleCreateNoteBlock = async(input?: {
+    event_id?: string
     title?: string
     content_md?: string
   }) => {
@@ -261,13 +371,16 @@ export const createSessionWorkbenchActions = ({
       const result = await alphaNexusApi.workbench.createNoteBlock({
         session_id: payload.current_context.session_id,
         trade_id: payload.current_context.trade_id ?? null,
+        event_id: input?.event_id ?? null,
         title: input?.title ?? '用户笔记',
         content_md: input?.content_md ?? '',
       })
       await refreshSession(payload.session.id)
-      setMessage(payload.current_context.trade_id
-        ? '已在当前 Trade 上下文中新建笔记块。'
-        : '已在当前 Session 上下文中新建笔记块。')
+      setMessage(input?.event_id
+        ? '已把说明挂到当前事件图下。'
+        : payload.current_context.trade_id
+          ? '已在当前 Trade 上下文中新建笔记块。'
+          : '已在当前 Session 上下文中新建笔记块。')
       return result.block
     } catch (error) {
       setMessage(error instanceof Error ? `创建失败：${error.message}` : '创建笔记块失败。')
@@ -341,10 +454,42 @@ export const createSessionWorkbenchActions = ({
         source_view: 'session-workbench',
         kind: payload.current_context.capture_kind,
       })
+      await refreshSession(payload.session.id)
       setSelectedScreenshotId(result.screenshot.id)
+      setSelectedEventId(result.created_event_id ?? result.screenshot.event_id)
       setMessage(`已从剪贴板创建图块：${result.screenshot.caption ?? result.screenshot.id}。`)
     } catch (error) {
       setMessage(error instanceof Error ? `粘贴失败：${error.message}` : '粘贴剪贴板图片失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handlePasteClipboardImageAndRunAnalysis = async() => {
+    if (!payload) {
+      return
+    }
+
+    try {
+      setBusy(true)
+      const result = await alphaNexusApi.capture.pasteClipboardImage({
+        session_id: payload.current_context.session_id,
+        contract_id: payload.current_context.contract_id ?? undefined,
+        period_id: payload.current_context.period_id ?? undefined,
+        trade_id: payload.current_context.trade_id ?? null,
+        source_view: 'session-workbench',
+        kind: payload.current_context.capture_kind,
+      })
+      const nextPayload = await refreshSession(payload.session.id)
+      setSelectedScreenshotId(result.screenshot.id)
+      setSelectedEventId(result.created_event_id ?? result.screenshot.event_id)
+      await runPreferredAnalysis({
+        sessionPayload: nextPayload ?? payload,
+        screenshotId: result.screenshot.id,
+        successMessagePrefix: '已贴入图片，并完成 AI 参考：',
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? `贴图并参考失败：${error.message}` : '贴图并参考 AI 失败。')
     } finally {
       setBusy(false)
     }
@@ -668,15 +813,19 @@ export const createSessionWorkbenchActions = ({
     handleImportScreenshot,
     handleOpenSnipCapture,
     handlePasteClipboardImage,
+    handlePasteClipboardImageAndRunAnalysis,
     handleReorderNoteBlocks,
     handleRestoreAiRecord,
     handleRestoreAnnotation,
     handleRestoreBlock,
     handleRestoreScreenshot,
     handleRunAnalysis,
+    handleRunAnalysisForScreenshot,
+    handleRunAnalysisFollowUpForScreenshot,
     handleRunAnalysisAcrossProviders,
     handleSaveAnnotations,
     handleSaveRealtimeView,
+    handleSaveRealtimeViewAndRunAnalysis,
     handleSetAnchorStatus,
     handleUpdateAnnotation,
     handleUpdateNoteBlock,

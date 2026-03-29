@@ -14,7 +14,7 @@ const renderGroup = (label: string, items: UserProfile['strengths']) => (
             <strong>{item.label}</strong>
             <p>{item.summary}</p>
             <div className="action-row">
-              <span className="status-pill">count {item.count}</span>
+              <span className="status-pill">次数 {item.count}</span>
             </div>
           </div>
         ))}

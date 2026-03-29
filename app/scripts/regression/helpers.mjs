@@ -51,10 +51,11 @@ export const insertContract = (db, nextIso, input) => {
 export const insertPeriod = (db, nextIso, input) => {
   db.prepare(`
     INSERT INTO periods (id, schema_version, created_at, kind, label, start_at, end_at)
-    VALUES (?, 1, ?, 'week', ?, ?, ?)
+    VALUES (?, 1, ?, ?, ?, ?, ?)
   `).run(
     input.id,
     nextIso(),
+    input.kind ?? 'week',
     input.label ?? input.id,
     input.start_at ?? '2026-03-23T00:00:00.000Z',
     input.end_at ?? '2026-03-29T23:59:59.000Z',
@@ -138,8 +139,9 @@ export const insertScreenshot = (db, nextIso, input) => {
   db.prepare(`
     INSERT INTO screenshots (
       id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url,
-      caption, width, height, deleted_at
-    ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 1600, 900, NULL)
+      caption, width, height, analysis_role, analysis_session_id, background_layer, background_label,
+      background_note_md, deleted_at
+    ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 1600, 900, ?, ?, ?, ?, ?, NULL)
   `).run(
     input.id,
     nextIso(),
@@ -149,6 +151,11 @@ export const insertScreenshot = (db, nextIso, input) => {
     input.file_path ?? `${input.id}.png`,
     input.asset_url ?? `file:///${input.id}.png`,
     input.caption ?? input.id,
+    input.analysis_role ?? 'event',
+    input.analysis_session_id ?? null,
+    input.background_layer ?? null,
+    input.background_label ?? null,
+    input.background_note_md ?? '',
   )
 }
 
@@ -186,7 +193,7 @@ export const insertAnalysisCard = (db, nextIso, input) => {
       id, schema_version, created_at, ai_run_id, session_id, trade_id, bias, confidence_pct,
       reversal_probability_pct, entry_zone, stop_loss, take_profit, invalidation,
       summary_short, deep_analysis_md, supporting_factors_json, deleted_at
-    ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 20, '100-101', '99', '103', 'loss of level', ?, 'deep analysis', '[]', NULL)
+    ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 20, '100-101', '99', '103', 'loss of level', ?, 'deep analysis', ?, NULL)
   `).run(
     input.id,
     nextIso(),
@@ -196,6 +203,7 @@ export const insertAnalysisCard = (db, nextIso, input) => {
     input.bias,
     input.confidence_pct,
     input.summary_short ?? `${input.bias} summary`,
+    JSON.stringify(input.supporting_factors ?? []),
   )
 }
 

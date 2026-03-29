@@ -1,3 +1,4 @@
+import { translateCalibrationStatus } from '@app/ui/display-text'
 import type { PeriodEvaluationRollup } from '@shared/contracts/evaluation'
 
 type PeriodEvaluationPanelProps = {
@@ -8,11 +9,11 @@ export const PeriodEvaluationPanel = ({ rollup }: PeriodEvaluationPanelProps) =>
   <div className="stack">
     <div className="key-value-grid">
       <div>
-        <dt>Evaluated</dt>
+        <dt>已评估</dt>
         <dd>{rollup.evaluated_count}</dd>
       </div>
       <div>
-        <dt>Pending</dt>
+        <dt>待评估</dt>
         <dd>{rollup.pending_count}</dd>
       </div>
     </div>
@@ -20,28 +21,28 @@ export const PeriodEvaluationPanel = ({ rollup }: PeriodEvaluationPanelProps) =>
     <div className="compact-list">
       {rollup.calibration_buckets.map((bucket) => (
         <article className="compact-list__item" key={bucket.id}>
-          <strong>Calibration {bucket.label}</strong>
+          <strong>校准区间 {bucket.label}</strong>
           <div className="key-value-grid">
             <div>
-              <dt>Samples</dt>
+              <dt>样本数</dt>
               <dd>{bucket.sample_count}</dd>
             </div>
             <div>
-              <dt>Resolved</dt>
+              <dt>已落地</dt>
               <dd>{bucket.resolved_count}</dd>
             </div>
             <div>
-              <dt>Hit Rate</dt>
+              <dt>命中率</dt>
               <dd>{bucket.hit_rate_pct !== null ? `${bucket.hit_rate_pct}%` : '暂无'}</dd>
             </div>
             <div>
-              <dt>Gap</dt>
+              <dt>偏差</dt>
               <dd>{bucket.calibration_gap_pct !== null ? `${bucket.calibration_gap_pct}%` : '暂无'}</dd>
             </div>
           </div>
           <div className="action-row">
-            <span className="status-pill">{bucket.status}</span>
-            <span className="status-pill">avg conf {bucket.avg_confidence_pct}%</span>
+            <span className="status-pill">{translateCalibrationStatus(bucket.status)}</span>
+            <span className="status-pill">平均置信度 {bucket.avg_confidence_pct}%</span>
           </div>
         </article>
       ))}
@@ -57,15 +58,15 @@ export const PeriodEvaluationPanel = ({ rollup }: PeriodEvaluationPanelProps) =>
               <dd>{metric.ai_value_pct !== null ? `${metric.ai_value_pct}%` : '暂无'}</dd>
             </div>
             <div>
-              <dt>Human</dt>
+              <dt>人工</dt>
               <dd>{metric.human_value_pct !== null ? `${metric.human_value_pct}%` : '暂无'}</dd>
             </div>
             <div>
-              <dt>Delta</dt>
+              <dt>差值</dt>
               <dd>{metric.delta_pct !== null ? `${metric.delta_pct}%` : '暂无'}</dd>
             </div>
             <div>
-              <dt>Samples</dt>
+              <dt>样本数</dt>
               <dd>{metric.sample_count}</dd>
             </div>
           </div>
@@ -80,7 +81,7 @@ export const PeriodEvaluationPanel = ({ rollup }: PeriodEvaluationPanelProps) =>
             <strong>{pattern.label}</strong>
             <p>{pattern.summary}</p>
             <div className="action-row">
-              <span className="status-pill">count {pattern.count}</span>
+              <span className="status-pill">次数 {pattern.count}</span>
             </div>
           </article>
         )) : <div className="empty-state">当前没有明显错误模式。</div>}
@@ -91,11 +92,11 @@ export const PeriodEvaluationPanel = ({ rollup }: PeriodEvaluationPanelProps) =>
           <article className="compact-list__item" key={item.card_id}>
             <strong>{item.title}</strong>
             <div className="action-row">
-              <span className="status-pill">hits {item.hit_count}</span>
-              <span className="status-pill">quality {item.quality_score_pct}%</span>
+              <span className="status-pill">命中 {item.hit_count}</span>
+              <span className="status-pill">质量 {item.quality_score_pct}%</span>
             </div>
           </article>
-        )) : <div className="empty-state">当前没有可回灌的 knowledge 命中。</div>}
+        )) : <div className="empty-state">当前没有可回灌的知识卡命中。</div>}
       </div>
     </div>
   </div>

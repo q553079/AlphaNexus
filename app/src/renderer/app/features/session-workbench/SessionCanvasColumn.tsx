@@ -1,19 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { AiRunExecutionResult, AiAnalysisAttachment } from '@shared/ai/contracts'
 import { SectionCard } from '@app/components/SectionCard'
 import { LazyImage } from '@app/components/LazyImage'
-import { AnnotationCanvas } from '@app/features/annotation/AnnotationCanvas'
 import { AnnotationMetadataEditor } from '@app/features/annotation/AnnotationMetadataEditor'
 import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
 import { AnchorAnnotationInspector } from '@app/features/anchors'
 import type { AnnotationInspectorItem } from '@app/features/anchors'
 import { CapturePanel } from '@app/features/capture/CapturePanel'
-import { ContentBlockTargetManager } from '@app/features/context/ContentBlockTargetManager'
-import { TargetSelector } from '@app/features/context/TargetSelector'
 import { AnnotationSuggestionsPanel } from '@app/features/suggestions'
 import type { AnnotationSuggestionView } from '@app/features/suggestions'
-import { translateContextType } from '@app/ui/display-text'
+import {
+  translateAnnotationSemantic,
+  translateAnnotationShape,
+  translateContextType,
+} from '@app/ui/display-text'
 import type { AnnotationRecord, ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
-import type { CurrentTargetOption, CurrentTargetOptionsPayload } from '@shared/contracts/workbench'
+import type { EventRecord } from '@shared/contracts/event'
+import type { TradeRecord } from '@shared/contracts/trade'
+import type { CurrentTargetOption, CurrentTargetOptionsPayload, SessionWorkbenchPayload } from '@shared/contracts/workbench'
+import { SessionImageLightbox } from './SessionImageLightbox'
+import { SessionScreenshotCard } from './SessionScreenshotCard'
+import { SessionStoryStack } from './SessionStoryStack'
+import type { ScreenshotAiReplyRecord } from './modules/session-screenshot-ai-thread'
 import type { ScreenshotGalleryState } from './modules/session-screenshot-gallery'
 
 type SessionCanvasColumnProps = {
@@ -23,12 +31,19 @@ type SessionCanvasColumnProps = {
   annotationInspectorItems: AnnotationInspectorItem[]
   annotationSuggestions: AnnotationSuggestionView[]
   busy: boolean
+  currentTrade: TradeRecord | null
   deletedAnnotations: AnnotationRecord[]
   deletedContentBlocks: ContentBlockRecord[]
   deletedScreenshots: ScreenshotRecord[]
   draftAnnotations: DraftAnnotation[]
+  onCreateNoteBlock: (input: {
+    event_id: string
+    title?: string
+    content_md?: string
+  }) => Promise<ContentBlockRecord | null>
   onAdoptAnchor: (item: AnnotationInspectorItem) => void
   onAnnotationSuggestionAction: (suggestionId: string, action: 'keep' | 'merge' | 'discard') => void
+  onDeleteAiRecord: (aiRunId: string) => void
   onDeleteAnnotation: (annotationId: string) => void
   onDeleteBlock: (block: ContentBlockRecord) => void
   onMoveContentBlock: (block: ContentBlockRecord, option: CurrentTargetOption) => void
@@ -36,6 +51,12 @@ type SessionCanvasColumnProps = {
   onDeleteScreenshot: (screenshotId: string) => void
   onDraftAnnotationsChange: (annotations: DraftAnnotation[]) => void
   onImportScreenshot: () => void
+  onRunAnalysisForScreenshot: (screenshotId: string) => Promise<AiRunExecutionResult | null>
+  onRunAnalysisFollowUpForScreenshot: (input: {
+    attachments?: AiAnalysisAttachment[]
+    backgroundNoteMd: string
+    screenshotId: string
+  }) => Promise<AiRunExecutionResult | null>
   onSnipScreenshot: () => void
   onRestoreAnnotation: (annotationId: string) => void
   onRestoreBlock: (block: ContentBlockRecord) => void
@@ -50,9 +71,16 @@ type SessionCanvasColumnProps = {
     note_md: string
     add_to_memory: boolean
   }) => void
+  onUpdateNoteBlock: (input: {
+    block_id: string
+    title: string
+    content_md: string
+  }) => Promise<ContentBlockRecord | null>
   moveTargetOptions: CurrentTargetOptionsPayload | null
   onSelectScreenshot: (screenshotId: string) => void
+  payload: SessionWorkbenchPayload
   screenshotGallery: ScreenshotGalleryState
+  selectedEvent: EventRecord | null
   selectedScreenshot: ScreenshotRecord | null
 }
 
@@ -74,6 +102,45 @@ const buildScreenshotTargetPayload = (targetPayload: CurrentTargetOptionsPayload
   }
 }
 
+const resolveScreenshotPreviewAsset = (screenshot: ScreenshotRecord) =>
+  screenshot.annotated_asset_url ?? screenshot.raw_asset_url ?? screenshot.asset_url
+
+const resolveEventScopedNoteBlock = (
+  blocks: ContentBlockRecord[],
+  eventId: string | null | undefined,
+) => {
+  if (!eventId) {
+    return null
+  }
+
+  return blocks
+    .filter((block) => !block.soft_deleted && block.block_type === 'markdown' && block.event_id === eventId)
+    .sort((left, right) => left.sort_order - right.sort_order || left.created_at.localeCompare(right.created_at))[0] ?? null
+}
+
+const resolveScreenshotAiReply = (
+  payload: SessionWorkbenchPayload,
+  screenshot: ScreenshotRecord,
+): ScreenshotAiReplyRecord[] => (
+  [...payload.events]
+    .filter((event) => event.event_type === 'ai_summary' && event.screenshot_id === screenshot.id && event.ai_run_id)
+    .sort((left, right) => left.occurred_at.localeCompare(right.occurred_at))
+    .map((event) => {
+      const card = event.ai_run_id
+        ? payload.analysis_cards.find((item) => item.ai_run_id === event.ai_run_id) ?? null
+        : null
+      if (!card) {
+        return null
+      }
+      return {
+        aiEvent: event,
+        aiRun: event.ai_run_id ? payload.ai_runs.find((run) => run.id === event.ai_run_id) ?? null : null,
+        card,
+      }
+    })
+    .filter((item): item is ScreenshotAiReplyRecord => item != null)
+)
+
 export const SessionCanvasColumn = ({
   activeContentBlocks,
   adoptedAnnotationKeys,
@@ -81,6 +148,7 @@ export const SessionCanvasColumn = ({
   annotationInspectorItems,
   annotationSuggestions,
   busy,
+  currentTrade,
   deletedAnnotations,
   deletedContentBlocks,
   deletedScreenshots,
@@ -94,18 +162,30 @@ export const SessionCanvasColumn = ({
   onDeleteScreenshot,
   onDraftAnnotationsChange,
   onImportScreenshot,
+  onRunAnalysisForScreenshot,
+  onRunAnalysisFollowUpForScreenshot,
   onSnipScreenshot,
   onRestoreAnnotation,
   onRestoreBlock,
   onRestoreScreenshot,
   onSaveAnnotations,
   onUpdateAnnotation,
+  onCreateNoteBlock,
+  onUpdateNoteBlock,
+  onDeleteAiRecord,
   moveTargetOptions,
   onSelectScreenshot,
+  payload,
   screenshotGallery,
+  selectedEvent,
   selectedScreenshot,
 }: SessionCanvasColumnProps) => {
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [lightboxImage, setLightboxImage] = useState<{
+    alt: string
+    src: string | null
+    title: string
+  } | null>(null)
   const screenshotTargetPayload = buildScreenshotTargetPayload(moveTargetOptions)
   const selectedScreenshotTargetOption = screenshotTargetPayload?.options.find((option) => {
     if (screenshotGallery.target_trade_id) {
@@ -133,6 +213,11 @@ export const SessionCanvasColumn = ({
     [annotationSuggestions],
   )
   const selectedAnnotation = activeAnnotations.find((annotation) => annotation.id === selectedAnnotationId) ?? activeAnnotations[0] ?? null
+  const hasAnnotationMaintenance = annotationInspectorItems.length > 0
+    || activeAnnotations.length > 0
+    || deletedAnnotations.length > 0
+    || deletedScreenshots.length > 0
+    || deletedContentBlocks.length > 0
 
   useEffect(() => {
     setSelectedAnnotationId((current) =>
@@ -143,63 +228,76 @@ export const SessionCanvasColumn = ({
 
   return (
     <section className="session-workbench__column session-workbench__column--canvas">
-      <SectionCard title="图表上下文" subtitle="当前时刻的图表与标注">
+      <SectionCard title="绘图工作区" subtitle="事件流里的图会顺着往下排，点到哪张就在那张图上继续画。">
+        <CapturePanel
+          annotations={draftAnnotations}
+          busy={busy}
+          onImport={onImportScreenshot}
+          onSave={onSaveAnnotations}
+          onSnip={onSnipScreenshot}
+          screenshot={selectedScreenshot}
+          showSaveButton={false}
+        />
         {screenshotGallery.screenshots.length > 0 ? (
-          <div className="tab-strip session-workbench__tabs">
-            {screenshotGallery.screenshots.map((screenshot, index) => (
-              <button
-                className={`tab-button ${selectedScreenshot?.id === screenshot.id ? 'is-active' : ''}`.trim()}
-                key={screenshot.id}
-                onClick={() => onSelectScreenshot(screenshot.id)}
-                type="button"
-              >
-                {screenshot.caption ?? `截图 ${index + 1}`}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        <div className="session-workbench__canvas-frame">
-          <AnnotationCanvas
-            annotations={draftAnnotations}
-            candidateAnnotations={candidateAnnotations}
-            onChange={onDraftAnnotationsChange}
-            screenshot={selectedScreenshot}
-          />
-        </div>
-        {selectedScreenshot ? (
-          <div className="session-workbench__canvas-meta">
-            <p className="session-workbench__canvas-title">{selectedScreenshot.caption ?? '未命名截图'}</p>
-            <p className="session-workbench__canvas-path">{selectedScreenshot.file_path}</p>
-            <p className="session-workbench__canvas-path">Audit · raw={selectedScreenshot.raw_file_path} · annotated={selectedScreenshot.annotated_file_path ?? 'none'} · annotations={selectedScreenshot.annotations_json_path ?? 'none'}</p>
-            {screenshotTargetPayload ? (
-              <TargetSelector
-                busy={busy}
-                emptyMessage="当前没有可用于截图改挂载的目标。"
-                label={`${screenshotGallery.scope_label} · 改挂载`}
-                onSelect={(option) => onMoveScreenshot(selectedScreenshot, option)}
-                selectedOptionId={selectedScreenshotTargetOption?.id ?? null}
-                targetPayload={screenshotTargetPayload}
-                variant="compact"
-              />
-            ) : null}
-            <div className="action-row">
-              <button className="button is-secondary" disabled={busy} onClick={() => onDeleteScreenshot(selectedScreenshot.id)} type="button">
-                删除当前截图
-              </button>
-            </div>
+          <div className="session-workbench__media-stack">
+            {screenshotGallery.screenshots.map((screenshot, index) => {
+              const isSelected = selectedScreenshot?.id === screenshot.id
+              const screenshotEvent = payload.events.find((event) => event.id === screenshot.event_id)
+                ?? payload.events.find((event) => event.screenshot_id === screenshot.id)
+                ?? null
+              const noteBlock = resolveEventScopedNoteBlock(activeContentBlocks, screenshotEvent?.id ?? screenshot.event_id)
+              const aiReplies = resolveScreenshotAiReply(payload, screenshot)
+              return (
+                <SessionScreenshotCard
+                  aiReplies={aiReplies}
+                  busy={busy}
+                  candidateAnnotations={candidateAnnotations}
+                  draftAnnotations={draftAnnotations}
+                  index={index}
+                  key={screenshot.id}
+                  isSelected={isSelected}
+                  noteBlock={noteBlock}
+                  onCreateNoteBlock={onCreateNoteBlock}
+                  onDeleteAiRecord={onDeleteAiRecord}
+                  onDeleteScreenshot={onDeleteScreenshot}
+                  onDraftAnnotationsChange={onDraftAnnotationsChange}
+                  onMoveScreenshot={onMoveScreenshot}
+                  onRunAnalysisForScreenshot={onRunAnalysisForScreenshot}
+                  onRunAnalysisFollowUpForScreenshot={onRunAnalysisFollowUpForScreenshot}
+                  onSaveAnnotations={onSaveAnnotations}
+                  onSelectScreenshot={onSelectScreenshot}
+                  onUpdateNoteBlock={onUpdateNoteBlock}
+                  screenshot={screenshot}
+                  screenshotTargetOption={selectedScreenshotTargetOption}
+                  screenshotTargetPayload={screenshotTargetPayload}
+                  selectedEvent={screenshotEvent}
+                />
+              )
+            })}
           </div>
         ) : (
-          <div className="session-workbench__canvas-empty">选择一个事件后即可查看画布详情。</div>
+          <div className="session-workbench__canvas-empty">先在左侧选中一个事件或截图，再开始画图和整理这一段事件流。</div>
         )}
+        {annotationSuggestions.length > 0 ? (
+          <div className="session-workbench__suggestion-layer">
+            <AnnotationSuggestionsPanel
+              busy={busy}
+              suggestions={annotationSuggestions}
+              onDiscard={(suggestionId) => onAnnotationSuggestionAction(suggestionId, 'discard')}
+              onKeep={(suggestionId) => onAnnotationSuggestionAction(suggestionId, 'keep')}
+              onMerge={(suggestionId) => onAnnotationSuggestionAction(suggestionId, 'merge')}
+            />
+          </div>
+        ) : null}
         {screenshotGallery.compare_pair?.setup && screenshotGallery.compare_pair.exit ? (
           <div className="session-workbench__content-blocks">
-            <p className="session-workbench__deleted-label">Setup / Exit 基础对照</p>
+            <p className="session-workbench__deleted-label">开仓图 / 离场图基础对照</p>
             <div className="trade-thread-media">
               {[{
-                title: 'Setup',
+                title: '开仓图',
                 screenshot: screenshotGallery.compare_pair.setup,
               }, {
-                title: 'Exit',
+                title: '离场图',
                 screenshot: screenshotGallery.compare_pair.exit,
               }].map((item) => (
                 <article className="trade-thread-media__stage" key={item.title}>
@@ -207,172 +305,171 @@ export const SessionCanvasColumn = ({
                     <div>
                       <p className="trade-thread-media__eyebrow">{item.title}</p>
                       <h3>{item.screenshot.caption ?? `${item.title} 图`}</h3>
-                      <p>{item.screenshot.file_path}</p>
+                      <p>{item.screenshot.created_at}</p>
                     </div>
                   </div>
                   <div className="trade-thread-media__hero">
-                    <LazyImage
-                      alt={item.screenshot.caption ?? item.title}
-                      aspectRatio="16 / 9"
-                      src={item.screenshot.annotated_asset_url ?? item.screenshot.raw_asset_url ?? item.screenshot.asset_url}
-                    />
+                    <button
+                      className="session-workbench__image-button"
+                      onClick={() => setLightboxImage({
+                        alt: item.screenshot.caption ?? item.title,
+                        src: resolveScreenshotPreviewAsset(item.screenshot),
+                        title: item.screenshot.caption ?? `${item.title} 图`,
+                      })}
+                      type="button"
+                    >
+                      <LazyImage
+                        alt={item.screenshot.caption ?? item.title}
+                        aspectRatio="16 / 9"
+                        src={resolveScreenshotPreviewAsset(item.screenshot)}
+                      />
+                    </button>
                   </div>
                 </article>
               ))}
             </div>
           </div>
         ) : null}
+        <SessionStoryStack
+          activeContentBlocks={activeContentBlocks}
+          busy={busy}
+          currentTrade={currentTrade}
+          moveTargetOptions={moveTargetOptions}
+          onDeleteBlock={onDeleteBlock}
+          onMoveContentBlock={onMoveContentBlock}
+          payload={payload}
+          selectedEvent={selectedEvent}
+          selectedScreenshot={selectedScreenshot}
+        />
       </SectionCard>
 
-      <SectionCard title="标注与内容" subtitle="截图控制、建议层和内容块">
-        <CapturePanel
-          annotations={draftAnnotations}
-          busy={busy}
-          onImport={onImportScreenshot}
-          onSnip={onSnipScreenshot}
-          onSave={onSaveAnnotations}
-          screenshot={selectedScreenshot}
-        />
-        <div className="session-workbench__anchor-adopt">
-          <p className="session-workbench__deleted-label">标注检查器</p>
-          <AnchorAnnotationInspector
-            adoptedKeys={adoptedAnnotationKeys}
-            busy={busy}
-            items={annotationInspectorItems}
-            onAdopt={onAdoptAnchor}
-          />
-        </div>
-        <div className="session-workbench__suggestion-layer">
-          <p className="session-workbench__deleted-label">AI Annotation Suggestions（建议层）</p>
-          <p className="session-workbench__layer-hint">AI 建议不会自动覆盖正式标注，只有 Keep / Merge 后才会进入下一步流程。</p>
-          <AnnotationSuggestionsPanel
-            busy={busy}
-            suggestions={annotationSuggestions}
-            onDiscard={(suggestionId) => onAnnotationSuggestionAction(suggestionId, 'discard')}
-            onKeep={(suggestionId) => onAnnotationSuggestionAction(suggestionId, 'keep')}
-            onMerge={(suggestionId) => onAnnotationSuggestionAction(suggestionId, 'merge')}
-          />
-        </div>
-        <div className="session-workbench__content-blocks">
-          <p className="session-workbench__deleted-label">当前截图标注</p>
-          {activeAnnotations.length > 0 ? (
-            activeAnnotations.map((annotation) => (
-              <article
-                className={`session-workbench__content-block ${selectedAnnotation?.id === annotation.id ? 'is-selected' : ''}`.trim()}
-                key={annotation.id}
-              >
-                <div className="session-workbench__content-header">
-                  <div>
-                    <h3>{annotation.title}</h3>
-                    <p className="session-workbench__content-meta">
-                      {annotation.label} · {annotation.shape} · {annotation.semantic_type ?? '未指定语义'}
-                    </p>
-                  </div>
-                  <button className="button is-secondary" disabled={busy} onClick={() => setSelectedAnnotationId(annotation.id)} type="button">
-                    编辑
-                  </button>
-                </div>
-                {annotation.note_md ? <p className="workbench-text">{annotation.note_md}</p> : null}
-                <div className="action-row">
-                  {annotation.add_to_memory ? <span className="status-pill">memory candidate</span> : null}
-                  <span className="status-pill">{annotation.color}</span>
-                </div>
-              </article>
-            ))
-          ) : (
-            <p className="empty-state">当前截图没有已保存标注。</p>
-          )}
-          <AnnotationMetadataEditor
-            annotation={selectedAnnotation}
-            busy={busy}
-            onDelete={onDeleteAnnotation}
-            onSave={onUpdateAnnotation}
-          />
-          {deletedAnnotations.length > 0 ? (
-            <div className="session-workbench__deleted-group">
-              <p className="session-workbench__deleted-label">已删除标注</p>
-              {deletedAnnotations.map((annotation) => (
-                <article className="session-workbench__content-block is-deleted" key={annotation.id}>
-                  <div className="session-workbench__content-header">
-                    <div>
-                      <h3>{annotation.label}</h3>
-                      <p className="session-workbench__content-meta">软删除</p>
-                    </div>
-                    <button className="button is-secondary" disabled={busy} onClick={() => onRestoreAnnotation(annotation.id)} type="button">
-                      恢复
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          {deletedScreenshots.length > 0 ? (
-            <div className="session-workbench__deleted-group">
-              <p className="session-workbench__deleted-label">已删除截图</p>
-              {deletedScreenshots.map((screenshot) => (
-                <article className="session-workbench__content-block is-deleted" key={screenshot.id}>
-                  <div className="session-workbench__content-header">
-                    <div>
-                      <h3>{screenshot.caption ?? screenshot.id}</h3>
-                      <p className="session-workbench__content-meta">{screenshot.file_path}</p>
-                    </div>
-                    <button className="button is-secondary" disabled={busy} onClick={() => onRestoreScreenshot(screenshot.id)} type="button">
-                      恢复
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        <div className="session-workbench__content-blocks">
-          {activeContentBlocks.length > 0 ? (
-            activeContentBlocks.map((block) => (
-              <article className="session-workbench__content-block" key={block.id}>
-                <div className="session-workbench__content-header">
-                  <div>
-                    <h3>{block.title}</h3>
-                    <p className="session-workbench__content-meta">
-                      {translateContextType(block.context_type)} · {block.context_id}
-                    </p>
-                  </div>
-                  <button className="button is-ghost" disabled={busy} onClick={() => onDeleteBlock(block)} type="button">
-                    删除
-                  </button>
-                </div>
-                <p className="workbench-text">{block.content_md}</p>
-                <ContentBlockTargetManager
-                  block={block}
+      <SessionImageLightbox
+        imageAlt={lightboxImage?.alt ?? ''}
+        imageSrc={lightboxImage?.src ?? null}
+        onClose={() => setLightboxImage(null)}
+        open={Boolean(lightboxImage)}
+        title={lightboxImage?.title ?? ''}
+      />
+
+      {hasAnnotationMaintenance ? (
+        <SectionCard title="图上标注（按需展开）" subtitle="平时直接在图上处理；只有要改标题、升级记忆或恢复删除内容时再展开。">
+          <details className="session-workbench__annotation-drawer">
+            <summary className="session-workbench__annotation-drawer-summary">
+              <div>
+                <strong>已保存标注 {activeAnnotations.length} 条</strong>
+                <p>需要深改标注信息或恢复删除内容时，再打开这里。</p>
+              </div>
+              <span className="status-pill">按需展开</span>
+            </summary>
+
+            {annotationInspectorItems.length > 0 ? (
+              <div className="session-workbench__anchor-adopt">
+                <p className="session-workbench__deleted-label">可升级为记忆 / Anchor 的标注</p>
+                <AnchorAnnotationInspector
+                  adoptedKeys={adoptedAnnotationKeys}
                   busy={busy}
-                  onMove={onMoveContentBlock}
-                  targetPayload={moveTargetOptions}
+                  items={annotationInspectorItems}
+                  onAdopt={onAdoptAnchor}
                 />
-              </article>
-            ))
-          ) : (
-            <p className="empty-state">还没有内容块。</p>
-          )}
-          {deletedContentBlocks.length > 0 ? (
-            <div className="session-workbench__deleted-group">
-              <p className="session-workbench__deleted-label">已删除内容块</p>
-              {deletedContentBlocks.map((block) => (
-                <article className="session-workbench__content-block is-deleted" key={block.id}>
-                  <div className="session-workbench__content-header">
-                    <div>
-                      <h3>{block.title}</h3>
-                      <p className="session-workbench__content-meta">软删除</p>
+              </div>
+            ) : null}
+            <div className="session-workbench__content-blocks">
+              {activeAnnotations.length > 0 ? (
+                activeAnnotations.map((annotation) => (
+                  <article
+                    className={`session-workbench__content-block ${selectedAnnotation?.id === annotation.id ? 'is-selected' : ''}`.trim()}
+                    key={annotation.id}
+                  >
+                    <div className="session-workbench__content-header">
+                      <div>
+                        <h3>{annotation.title}</h3>
+                        <p className="session-workbench__content-meta">
+                          {annotation.label} · {translateAnnotationShape(annotation.shape)} · {translateAnnotationSemantic(annotation.semantic_type)}
+                        </p>
+                      </div>
+                      <button className="button is-secondary" disabled={busy} onClick={() => setSelectedAnnotationId(annotation.id)} type="button">
+                        编辑
+                      </button>
                     </div>
-                    <button className="button is-secondary" disabled={busy} onClick={() => onRestoreBlock(block)} type="button">
-                      恢复
-                    </button>
-                  </div>
-                  <p className="workbench-text">{block.content_md}</p>
-                </article>
-              ))}
+                    {annotation.note_md ? <p className="workbench-text">{annotation.note_md}</p> : null}
+                    <div className="action-row">
+                      {annotation.add_to_memory ? <span className="status-pill">记忆候选</span> : null}
+                      <span className="status-pill">{annotation.color}</span>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <p className="empty-state">当前截图还没有已保存标注。</p>
+              )}
+              {selectedAnnotation ? (
+                <AnnotationMetadataEditor
+                  annotation={selectedAnnotation}
+                  busy={busy}
+                  onDelete={onDeleteAnnotation}
+                  onSave={onUpdateAnnotation}
+                />
+              ) : null}
+              {deletedAnnotations.length > 0 ? (
+                <div className="session-workbench__deleted-group">
+                  <p className="session-workbench__deleted-label">已删除标注</p>
+                  {deletedAnnotations.map((annotation) => (
+                    <article className="session-workbench__content-block is-deleted" key={annotation.id}>
+                      <div className="session-workbench__content-header">
+                        <div>
+                          <h3>{annotation.label}</h3>
+                          <p className="session-workbench__content-meta">软删除</p>
+                        </div>
+                        <button className="button is-secondary" disabled={busy} onClick={() => onRestoreAnnotation(annotation.id)} type="button">
+                          恢复
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {deletedScreenshots.length > 0 ? (
+                <div className="session-workbench__deleted-group">
+                  <p className="session-workbench__deleted-label">已删除截图</p>
+                  {deletedScreenshots.map((screenshot) => (
+                    <article className="session-workbench__content-block is-deleted" key={screenshot.id}>
+                      <div className="session-workbench__content-header">
+                        <div>
+                          <h3>{screenshot.caption ?? screenshot.id}</h3>
+                          <p className="session-workbench__content-meta">已软删除，可恢复</p>
+                        </div>
+                        <button className="button is-secondary" disabled={busy} onClick={() => onRestoreScreenshot(screenshot.id)} type="button">
+                          恢复
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-      </SectionCard>
+            <div className="session-workbench__content-blocks">
+              {deletedContentBlocks.length > 0 ? (
+                <div className="session-workbench__deleted-group">
+                  <p className="session-workbench__deleted-label">已删除笔记</p>
+                  {deletedContentBlocks.map((block) => (
+                    <article className="session-workbench__content-block is-deleted" key={block.id}>
+                      <div className="session-workbench__content-header">
+                        <div>
+                          <h3>{block.title}</h3>
+                          <p className="session-workbench__content-meta">{translateContextType(block.context_type)} · 软删除</p>
+                        </div>
+                        <button className="button is-secondary" disabled={busy} onClick={() => onRestoreBlock(block)} type="button">
+                          恢复
+                        </button>
+                      </div>
+                      <p className="workbench-text">{block.content_md}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </details>
+        </SectionCard>
+      ) : null}
     </section>
   )
 }

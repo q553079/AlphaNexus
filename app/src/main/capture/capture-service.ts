@@ -19,6 +19,10 @@ import {
   setPendingSnipCapture,
 } from '@main/capture/capture-overlay-state'
 import {
+  readCaptureAiContextPreferences,
+  writeCaptureAiContextPreferences,
+} from '@main/capture/capture-ai-context-preferences-storage'
+import {
   readCapturePreferences,
   writeCapturePreferences,
 } from '@main/capture/capture-preferences-storage'
@@ -271,6 +275,7 @@ const buildClipboardPendingCapture = async(
   },
   image: NativeImage,
 ) => {
+  const analysisDefaults = await readCaptureAiContextPreferences(paths)
   const currentContext = await resolveCaptureContext(paths, {
     session_id: input.session_id,
     contract_id: input.contract_id,
@@ -301,6 +306,7 @@ const buildClipboardPendingCapture = async(
     source_width: width,
     source_height: height,
     source_data_url: image.toDataURL(),
+    analysis_context_defaults: analysisDefaults,
   })
 }
 
@@ -338,6 +344,7 @@ export const setCaptureSessionContext = async(rawInput: unknown) => {
 
 export const openSnipCapture = async(paths: LocalFirstPaths, rawInput?: unknown) => {
   const input = OpenSnipCaptureInputSchema.parse(rawInput)
+  const analysisDefaults = await readCaptureAiContextPreferences(paths)
   const currentContext = await resolveCaptureContext(paths, input ? {
     session_id: input.session_id,
     contract_id: input.contract_id,
@@ -366,6 +373,7 @@ export const openSnipCapture = async(paths: LocalFirstPaths, rawInput?: unknown)
     contract_symbol: targetMetadata.contract_symbol,
     open_trade_id: targetMetadata.open_trade_id,
     open_trade_label: targetMetadata.open_trade_label,
+    analysis_context_defaults: analysisDefaults,
   }))
 
   const { openCaptureOverlayWindow } = await import('@main/capture/capture-overlay-window')
@@ -412,7 +420,16 @@ export const savePendingSnip = async(
       annotated_image_data_url: input.annotated_image_data_url,
       annotation_document_json: input.annotation_document_json,
     },
+    input.screenshot_background,
   )
+
+  await writeCaptureAiContextPreferences(paths, {
+    analysis_session_id: input.analysis_context?.analysis_session_id ?? saveTarget.session_id,
+    analysis_contract_id: input.analysis_context?.analysis_contract_id ?? null,
+    analysis_contract_symbol: input.analysis_context?.analysis_contract_symbol?.trim() ?? '',
+    analysis_role: input.screenshot_background?.analysis_role ?? 'event',
+    background_layer: input.screenshot_background?.background_layer ?? 'macro',
+  })
 
   clearPendingSnipCapture()
   await dependencies.closeOverlayWindow()
@@ -431,6 +448,7 @@ export const savePendingSnip = async(
           screenshot_id: result.screenshot.id,
           provider: provider.provider,
           prompt_kind: 'market-analysis',
+          analysis_context: input.analysis_context,
         })
         result = SavePendingSnipResultSchema.parse({
           ...result,

@@ -1,7 +1,21 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import type { AiAdapter, AiAdapterRunInput, AiAdapterRunResult } from '@main/ai/adapters/base'
-import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contracts'
+import {
+  AiAnalysisDraftSchema,
+  PeriodReviewDraftSchema,
+  TradeReviewDraftSchema,
+} from '@shared/ai/contracts'
 
 const DEFAULT_MODEL = 'openai-compatible-model'
+
+const mimeTypeByExtension: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+}
 
 const JSON_CONTRACT = [
   'Return a JSON object with exactly these keys:',
@@ -33,6 +47,21 @@ const TRADE_REVIEW_JSON_CONTRACT = [
   'Write all user-facing strings in Simplified Chinese.',
   'Do not invent or overwrite trade facts.',
   'Keep each list short, concrete, and auditable from the provided trade thread context.',
+].join('\n')
+
+const PERIOD_REVIEW_JSON_CONTRACT = [
+  'Return a JSON object with exactly these keys:',
+  '{',
+  '  "summary_short": string,',
+  '  "strengths": string[],',
+  '  "mistakes": string[],',
+  '  "recurring_patterns": string[],',
+  '  "action_items": string[],',
+  '  "deep_analysis_md": string',
+  '}',
+  'Write all user-facing strings in Simplified Chinese.',
+  'Use only the provided aggregated facts, tags, and representative samples.',
+  'Do not invent missing trades, sessions, or metrics.',
 ].join('\n')
 
 type OpenAiCompatibleResponse = {
@@ -91,9 +120,13 @@ const extractTextContent = (
 
 const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
   const payload = extractJsonPayload(rawOutput)
-  return input.input.prompt_kind === 'trade-review'
-    ? TradeReviewDraftSchema.parse(payload)
-    : AiAnalysisDraftSchema.parse(payload)
+  if (input.input.prompt_kind === 'trade-review') {
+    return TradeReviewDraftSchema.parse(payload)
+  }
+  if (input.input.prompt_kind === 'period-review') {
+    return PeriodReviewDraftSchema.parse(payload)
+  }
+  return AiAnalysisDraftSchema.parse(payload)
 }
 
 const buildSystemPrompt = (input: AiAdapterRunInput) =>
@@ -102,6 +135,40 @@ const buildSystemPrompt = (input: AiAdapterRunInput) =>
     input.promptTemplate.runtime_notes.trim(),
     'Return only one valid JSON object.',
   ].filter((section) => section.length > 0).join('\n\n')
+
+const resolveScreenshotDataUrls = async(input: AiAdapterRunInput) => {
+  const screenshotIds = input.attachment_screenshot_ids && input.attachment_screenshot_ids.length > 0
+    ? input.attachment_screenshot_ids
+    : input.input.screenshot_id
+      ? [input.input.screenshot_id]
+      : []
+
+  if (screenshotIds.length === 0) {
+    return []
+  }
+
+  const urls = await Promise.all(screenshotIds.map(async(screenshotId) => {
+    const screenshot = input.payload.screenshots.find((item) => item.id === screenshotId)
+    if (!screenshot) {
+      throw new Error(`当前 Session 中未找到截图 ${screenshotId}。`)
+    }
+
+    const rawPath = path.join(input.paths.vaultDir, screenshot.raw_file_path)
+    const mimeType = mimeTypeByExtension[path.extname(rawPath).toLowerCase()] ?? 'image/png'
+    const imageBuffer = await readFile(rawPath)
+    return `data:${mimeType};base64,${imageBuffer.toString('base64')}`
+  }))
+
+  return urls
+}
+
+const resolveInlineAttachmentImageDataUrls = (input: AiAdapterRunInput) =>
+  (input.input.analysis_context?.attachments ?? [])
+    .filter((attachment) =>
+      attachment.kind === 'image'
+      && typeof attachment.data_url === 'string'
+      && attachment.data_url.trim().length > 0)
+    .map((attachment) => attachment.data_url!.trim())
 
 const runCustomHttpAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
   const {
@@ -117,6 +184,28 @@ const runCustomHttpAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapter
   }
 
   const endpoint = `${normalizeBaseUrl(config.base_url)}/chat/completions`
+  const screenshotDataUrls = await resolveScreenshotDataUrls(input)
+  const userPrompt = `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review'
+    ? TRADE_REVIEW_JSON_CONTRACT
+    : input.input.prompt_kind === 'period-review'
+      ? PERIOD_REVIEW_JSON_CONTRACT
+      : JSON_CONTRACT}`
+  const inlineAttachmentDataUrls = resolveInlineAttachmentImageDataUrls(input)
+  const allImageDataUrls = [...screenshotDataUrls, ...inlineAttachmentDataUrls]
+  const userContent = allImageDataUrls.length > 0
+    ? [
+      {
+        type: 'text',
+        text: userPrompt,
+      },
+      ...allImageDataUrls.map((imageUrl) => ({
+        type: 'image_url',
+        image_url: {
+          url: imageUrl,
+        },
+      })),
+    ]
+    : userPrompt
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -129,7 +218,7 @@ const runCustomHttpAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapter
         { role: 'system', content: buildSystemPrompt(input) },
         {
           role: 'user',
-          content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review' ? TRADE_REVIEW_JSON_CONTRACT : JSON_CONTRACT}`,
+          content: userContent,
         },
       ],
       stream: false,

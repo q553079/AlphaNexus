@@ -6,6 +6,7 @@ import type { TradeRecord } from '@shared/contracts/trade'
 export type EventClusterKind = 'ai' | 'notes' | 'background'
 
 export type EventStreamItem = {
+  sequenceNumber: number
   event: EventRecord
   trade: TradeRecord | null
   screenshotKind: ScreenshotRecord['kind'] | null
@@ -79,23 +80,23 @@ const matchesFilter = (event: EventRecord, filter: EventStreamFilterKey) => {
 const buildClusterMeta = (clusterKind: EventClusterKind, items: EventStreamItem[]) => {
   if (clusterKind === 'ai') {
     return {
-      title: 'AI Context Stack',
-      subtitle: `${items.length} 条 AI 事件已折叠`,
+      title: '已折叠的 AI 回复',
+      subtitle: `${items.length} 条 AI 相关回复暂时收起`,
       signalTone: null,
     } as const
   }
 
   if (clusterKind === 'notes') {
     return {
-      title: items.some((item) => item.event.event_type === 'review') ? 'Notes / Review Stack' : 'Notes Stack',
-      subtitle: `${items.length} 条 note / review 事件已折叠`,
+      title: items.some((item) => item.event.event_type === 'review') ? '已折叠的笔记 / 复盘' : '已折叠的笔记',
+      subtitle: `${items.length} 条记录暂时收起`,
       signalTone: items.some((item) => item.event.event_type === 'review') ? 'review' : null,
     } as const
   }
 
   return {
-    title: 'Background Trade Stack',
-    subtitle: `${items.length} 条非焦点 trade 背景事件已折叠`,
+    title: '已折叠的背景事件',
+    subtitle: `${items.length} 条非当前焦点的背景事件已收起`,
     signalTone: null,
   } as const
 }
@@ -156,7 +157,7 @@ export const buildEventStreamViewModel = (input: {
     .filter((event) => matchesFilter(event, input.activeFilter))
     .filter((event) => (input.tradeFocusId ? event.trade_id === input.tradeFocusId : true))
 
-  const items = filteredEvents.map<EventStreamItem>((event) => {
+  const items = filteredEvents.map<EventStreamItem>((event, index) => {
     const trade = event.trade_id ? tradesById.get(event.trade_id) ?? null : null
     const screenshotKind = event.screenshot_id
       ? screenshotsById.get(event.screenshot_id)?.kind ?? null
@@ -190,6 +191,7 @@ export const buildEventStreamViewModel = (input: {
     })()
 
     return {
+      sequenceNumber: index + 1,
       event,
       trade,
       screenshotKind,

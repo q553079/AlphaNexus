@@ -21,11 +21,21 @@ const buildCaptureEventSummary = (
     trade_id: string | null
     kind: ScreenshotRecord['kind']
     note_text?: string | null
+    analysis_role?: ScreenshotRecord['analysis_role']
+    background_label?: string | null
+    background_layer?: ScreenshotRecord['background_layer']
   },
 ) => {
   const noteText = input.note_text?.trim()
   if (noteText) {
     return buildSummary(noteText)
+  }
+
+  if (input.analysis_role === 'background') {
+    const backgroundScope = [input.background_layer, input.background_label].filter(Boolean).join(' · ')
+    return backgroundScope.length > 0
+      ? `背景截图已保存：${backgroundScope}。`
+      : '背景截图已保存到当前分析层。'
   }
 
   if (input.kind === 'exit') {
@@ -51,6 +61,11 @@ export const createImportedScreenshotForContext = (
     caption: string | null
     width: number
     height: number
+    analysis_role?: ScreenshotRecord['analysis_role']
+    analysis_session_id?: string | null
+    background_layer?: ScreenshotRecord['background_layer']
+    background_label?: string | null
+    background_note_md?: string
   },
 ) => {
   const screenshotId = createId('screenshot')
@@ -62,9 +77,10 @@ export const createImportedScreenshotForContext = (
       INSERT INTO screenshots (
         id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url,
         raw_file_path, raw_asset_url, annotated_file_path, annotated_asset_url, annotations_json_path,
-        caption, width, height, deleted_at
+        caption, width, height, analysis_role, analysis_session_id, background_layer, background_label,
+        background_note_md, deleted_at
       )
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     `).run(
       screenshotId,
       createdAt,
@@ -81,6 +97,11 @@ export const createImportedScreenshotForContext = (
       input.caption,
       input.width,
       input.height,
+      input.analysis_role ?? 'event',
+      input.analysis_session_id ?? null,
+      input.background_layer ?? null,
+      input.background_label ?? null,
+      input.background_note_md ?? '',
     )
 
     db.prepare(`
@@ -123,6 +144,11 @@ export const createCapturedScreenshotArtifactsForContext = (
     note_text?: string | null
     note_title?: string
     annotations?: Omit<AnnotationRecord, 'id' | 'schema_version' | 'created_at' | 'screenshot_id'>[]
+    analysis_role?: ScreenshotRecord['analysis_role']
+    analysis_session_id?: string | null
+    background_layer?: ScreenshotRecord['background_layer']
+    background_label?: string | null
+    background_note_md?: string
   },
 ) => {
   const screenshotId = createId('screenshot')
@@ -136,9 +162,10 @@ export const createCapturedScreenshotArtifactsForContext = (
       INSERT INTO screenshots (
         id, schema_version, created_at, session_id, event_id, kind, file_path, asset_url,
         raw_file_path, raw_asset_url, annotated_file_path, annotated_asset_url, annotations_json_path,
-        caption, width, height, deleted_at
+        caption, width, height, analysis_role, analysis_session_id, background_layer, background_label,
+        background_note_md, deleted_at
       )
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     `).run(
       screenshotId,
       createdAt,
@@ -155,6 +182,11 @@ export const createCapturedScreenshotArtifactsForContext = (
       input.caption,
       input.width,
       input.height,
+      input.analysis_role ?? 'event',
+      input.analysis_session_id ?? null,
+      input.background_layer ?? null,
+      input.background_label ?? null,
+      input.background_note_md ?? '',
     )
 
     db.prepare(`
@@ -170,6 +202,9 @@ export const createCapturedScreenshotArtifactsForContext = (
         trade_id: input.trade_id,
         kind: input.kind,
         note_text: noteText,
+        analysis_role: input.analysis_role,
+        background_label: input.background_label,
+        background_layer: input.background_layer,
       }),
       createdAt,
       JSON.stringify(noteBlockId ? [noteBlockId] : []),

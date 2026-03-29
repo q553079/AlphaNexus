@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react'
 import { alphaNexusApi } from '@app/bootstrap/api'
 
 const baseNavItems = [
-  { to: '/', label: '首页' },
-  { to: '/knowledge/review', label: 'Knowledge Review' },
+  { to: '/', label: '工作入口' },
+  { to: '/knowledge/review', label: '知识复核' },
   { to: '/settings/ai', label: 'AI 设置' },
   { to: '/exports', label: '导出' },
 ]
@@ -18,9 +18,11 @@ export const AppFrame = () => {
     ? '启动中'
     : status === 'alpha-nexus-mock'
       ? '模拟 API 已连接'
-      : status === 'bridge-unavailable'
-        ? 'Preload Bridge 不可用'
-      : status
+      : status === 'alpha-nexus-ready'
+        ? '已就绪'
+        : status === 'bridge-unavailable'
+          ? '预加载桥接不可用'
+          : status
 
   useEffect(() => {
     void (async () => {
@@ -32,12 +34,14 @@ export const AppFrame = () => {
         ])
         setStatus(result)
 
-        const dynamicItems = [...baseNavItems]
         const activeSession = launcherHome?.active_session ?? launcherHome?.recent_sessions[0] ?? null
+        const dynamicItems = activeSession
+          ? baseNavItems.filter((item) => item.to !== '/')
+          : [...baseNavItems]
         if (activeSession) {
-          dynamicItems.splice(1, 0, {
+          dynamicItems.splice(0, 0, {
             to: `/sessions/${activeSession.id}`,
-            label: 'Session 工作台',
+            label: '工作台',
           })
 
           try {
@@ -46,12 +50,12 @@ export const AppFrame = () => {
               source_view: 'launcher',
             })
             if (currentContext.trade_id) {
-              dynamicItems.splice(2, 0, {
+              dynamicItems.splice(1, 0, {
                 to: `/trades/${currentContext.trade_id}`,
                 label: '交易详情',
               })
             }
-            dynamicItems.splice(2, 0, {
+            dynamicItems.splice(1, 0, {
               to: `/periods/${currentContext.period_id}`,
               label: '周期复盘',
             })
@@ -79,7 +83,7 @@ export const AppFrame = () => {
         <div className="app-shell__brand">
           <p className="app-shell__eyebrow">本地优先交易工作台</p>
           <h1>AlphaNexus</h1>
-          <p className="app-shell__description">截图、标注、复盘，并带着完整上下文回看每个 Session。</p>
+          <p className="app-shell__description">截图、标注、复盘，并带着完整上下文回看每次工作过程。</p>
         </div>
 
         <nav className="app-shell__nav">

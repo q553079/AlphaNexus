@@ -58,6 +58,7 @@ import type {
   SaveCapturePreferencesInput,
   SavePendingSnipResult,
 } from '@shared/capture/contracts'
+import type { PeriodTagSummary, PeriodTradeMetric } from '@shared/contracts/period-review'
 import type { ExportSessionMarkdownInput, SessionMarkdownExport } from '@shared/export/contracts'
 import type {
   ContinueSessionInput,
@@ -1769,6 +1770,14 @@ const buildMockPendingSnip = (currentContext: CurrentContext): PendingSnipCaptur
     source_width: 1600,
     source_height: 900,
     source_data_url: payload.screenshots[0]?.asset_url ?? mockPayload.screenshots[0]?.asset_url ?? '',
+    analysis_context_defaults: {
+      schema_version: 1,
+      analysis_session_id: currentContext.session_id,
+      analysis_contract_id: currentContext.contract_id ?? null,
+      analysis_contract_symbol: payload.contract.symbol,
+      analysis_role: 'event',
+      background_layer: 'macro',
+    },
   }
 }
 
@@ -2167,12 +2176,103 @@ const buildPeriodReview = (periodId?: string): PeriodReviewPayload => {
     ? mockSessionPayloads.find((payload) => payload.period.id === periodId) ?? mockPayload
     : mockPayload
   const scopedPayloads = mockSessionPayloads.filter((payload) => payload.period.id === targetPayload.period.id)
+  const tradeMetrics: PeriodTradeMetric[] = scopedPayloads.flatMap((payload) => payload.trades.map((trade) => ({
+    trade_id: trade.id,
+    session_id: trade.session_id,
+    session_title: payload.session.title,
+    trade,
+    pnl_r: trade.pnl_r,
+    holding_minutes: trade.closed_at
+      ? Math.round((new Date(trade.closed_at).getTime() - new Date(trade.opened_at).getTime()) / 60_000)
+      : null,
+    result_label: trade.status === 'canceled'
+      ? 'canceled'
+      : trade.status !== 'closed' || trade.pnl_r === null
+        ? 'pending'
+        : trade.pnl_r > 0
+          ? 'win'
+          : trade.pnl_r < 0
+            ? 'loss'
+            : 'flat',
+    plan_adherence_score: payload.evaluations.find((evaluation) => evaluation.trade_id === trade.id)?.score ?? null,
+    ai_alignment_score: 72,
+    thesis_excerpt: trade.thesis,
+    tags: payload.session.tags.map((tag, index) => ({
+      id: `${index === 0 ? 'setup' : 'context'}:user:${tag}`,
+      label: tag,
+      category: index === 0 ? 'setup' : 'context',
+      source: 'user',
+      evidence: `mock tag ${tag}`,
+          })) as PeriodTradeMetric['tags'],
+  })))
+  const resolvedTrades = tradeMetrics.filter((metric) => metric.result_label === 'win' || metric.result_label === 'loss' || metric.result_label === 'flat')
+  const pnlCurve = resolvedTrades.map((metric, index) => ({
+    trade_id: metric.trade_id,
+    session_id: metric.session_id,
+    point_at: metric.trade.closed_at ?? metric.trade.opened_at,
+    pnl_r: metric.pnl_r ?? 0,
+    cumulative_pnl_r: resolvedTrades.slice(0, index + 1).reduce((sum, item) => sum + (item.pnl_r ?? 0), 0),
+  }))
+  const tagSummary: PeriodTagSummary[] = tradeMetrics.flatMap((metric) => metric.tags).map((tag) => ({
+    id: tag.id,
+    label: tag.label,
+    category: tag.category,
+    source: tag.source,
+    count: tradeMetrics.filter((metric) => metric.tags.some((item) => item.id === tag.id)).length,
+    trade_ids: tradeMetrics.filter((metric) => metric.tags.some((item) => item.id === tag.id)).map((metric) => metric.trade_id),
+  }))
 
   return {
     period: targetPayload.period,
     contract: targetPayload.contract,
     sessions: scopedPayloads.map((payload) => payload.session),
+    period_rollup: {
+      schema_version: 1,
+      period: targetPayload.period,
+      period_key: `${targetPayload.period.kind}:${targetPayload.period.label}`,
+      generated_at: targetPayload.period.start_at,
+      generation_strategy: 'rebuild-from-local-records',
+      session_ids: scopedPayloads.map((payload) => payload.session.id),
+      trade_ids: tradeMetrics.map((metric) => metric.trade_id),
+      stats: {
+        trade_count: tradeMetrics.length,
+        resolved_trade_count: resolvedTrades.length,
+        pending_trade_count: tradeMetrics.filter((metric) => metric.result_label === 'pending').length,
+        canceled_trade_count: tradeMetrics.filter((metric) => metric.result_label === 'canceled').length,
+        win_count: tradeMetrics.filter((metric) => metric.result_label === 'win').length,
+        loss_count: tradeMetrics.filter((metric) => metric.result_label === 'loss').length,
+        flat_count: tradeMetrics.filter((metric) => metric.result_label === 'flat').length,
+        total_pnl_r: resolvedTrades.reduce((sum, metric) => sum + (metric.pnl_r ?? 0), 0),
+        avg_pnl_r: resolvedTrades.length > 0
+          ? resolvedTrades.reduce((sum, metric) => sum + (metric.pnl_r ?? 0), 0) / resolvedTrades.length
+          : null,
+        win_rate_pct: resolvedTrades.length > 0
+          ? Math.round((resolvedTrades.filter((metric) => metric.result_label === 'win').length / resolvedTrades.length) * 100)
+          : null,
+        avg_holding_minutes: tradeMetrics[0]?.holding_minutes ?? null,
+        plan_adherence_avg_pct: 72,
+        ai_alignment_avg_pct: 72,
+      },
+      pnl_curve: pnlCurve,
+      tag_summary: tagSummary,
+      best_trade_ids: resolvedTrades.slice(0, 2).map((metric) => metric.trade_id),
+      worst_trade_ids: resolvedTrades.slice(-2).map((metric) => metric.trade_id),
+      latest_period_review_ai_run_id: null,
+      latest_period_review_generated_at: null,
+    },
+    trade_metrics: tradeMetrics,
     highlight_cards: targetPayload.analysis_cards,
+    latest_period_ai_review: null,
+    ai_quality_summary: {
+      schema_version: 1,
+      period_id: targetPayload.period.id,
+      total_runs: targetPayload.ai_runs.length,
+      structured_success_count: targetPayload.ai_runs.length,
+      structured_failure_count: 0,
+      success_rate_pct: 100,
+      providers: [],
+      recent_failures: [],
+    },
     evaluations: scopedPayloads.flatMap((payload) => payload.evaluations),
     content_blocks: scopedPayloads.flatMap((payload) =>
       payload.content_blocks.filter((block) => !block.soft_deleted && block.context_type === 'period' && block.context_id === targetPayload.period.id)),
@@ -2390,11 +2490,18 @@ const mutateMockCreateNoteBlock = (input: CreateWorkbenchNoteBlockInput): Conten
     source_view: 'session-workbench',
     capture_kind: mockCurrentContext.capture_kind,
   })
-  const contextType = currentContext.trade_id ? 'trade' as const : 'session' as const
-  const contextId = currentContext.trade_id ?? input.session_id
   const targetPayload = getRawMockPayload(input.session_id)
   const timestamp = new Date().toISOString()
-  const eventId = createMockEntityId('event')
+  const existingEvent = input.event_id
+    ? targetPayload.events.find((event) => event.id === input.event_id) ?? null
+    : null
+  const eventId = existingEvent?.id ?? createMockEntityId('event')
+  const contextType = existingEvent
+    ? 'event' as const
+    : currentContext.trade_id
+      ? 'trade' as const
+      : 'session' as const
+  const contextId = existingEvent?.id ?? currentContext.trade_id ?? input.session_id
   const block = {
     id: createMockEntityId('block'),
     schema_version: 1 as const,
@@ -2418,21 +2525,28 @@ const mutateMockCreateNoteBlock = (input: CreateWorkbenchNoteBlockInput): Conten
     created_at: timestamp,
     deleted_at: null,
     session_id: input.session_id,
-    trade_id: currentContext.trade_id,
+    trade_id: existingEvent?.trade_id ?? currentContext.trade_id,
     event_type: 'observation' as const,
     title: input.title,
     summary: input.content_md.slice(0, 120),
     author_kind: 'user' as const,
     occurred_at: timestamp,
     content_block_ids: [block.id],
-    screenshot_id: null,
-    ai_run_id: null,
+    screenshot_id: existingEvent?.screenshot_id ?? null,
+    ai_run_id: existingEvent?.ai_run_id ?? null,
   }
 
   updateMockSessionPayload(input.session_id, (payload) => ({
     ...payload,
     content_blocks: [...payload.content_blocks, block],
-    events: [...payload.events, event],
+    events: existingEvent
+      ? payload.events.map((item) => item.id === existingEvent.id
+        ? {
+          ...item,
+          content_block_ids: [...item.content_block_ids, block.id],
+        }
+        : item)
+      : [...payload.events, event],
   }))
   refreshPanels()
   return { block }
@@ -2464,14 +2578,21 @@ const mutateMockUpdateNoteBlock = (input: UpdateWorkbenchNoteBlockInput): Conten
     ...payload,
     content_blocks: payload.content_blocks.map((block) => block.id === nextBlock.id ? nextBlock : block),
     events: payload.events.map((event) => event.id === nextBlock.event_id
-      ? {
-        ...event,
-        title: input.title,
-        summary: input.content_md.slice(0, 120),
-        occurred_at: timestamp,
-        deleted_at: null,
-        content_block_ids: [nextBlock.id],
-      }
+      ? (
+        event.screenshot_id == null && event.ai_run_id == null && ['observation', 'thesis', 'review'].includes(event.event_type)
+          ? {
+            ...event,
+            title: input.title,
+            summary: input.content_md.slice(0, 120),
+            occurred_at: timestamp,
+            deleted_at: null,
+            content_block_ids: [nextBlock.id],
+          }
+          : {
+            ...event,
+            content_block_ids: Array.from(new Set([...(event.content_block_ids ?? []), nextBlock.id])),
+          }
+      )
       : event),
   }))
   refreshPanels()
@@ -3023,6 +3144,19 @@ const createMockSnipCapture = (
     event_id: eventId,
     session_id: saveTarget.session_id,
     kind: saveTarget.kind,
+    analysis_role: input.screenshot_background?.analysis_role ?? 'event',
+    analysis_session_id: input.screenshot_background?.analysis_role === 'background'
+      ? input.screenshot_background.analysis_session_id ?? saveTarget.session_id
+      : null,
+    background_layer: input.screenshot_background?.analysis_role === 'background'
+      ? input.screenshot_background.background_layer ?? 'custom'
+      : null,
+    background_label: input.screenshot_background?.analysis_role === 'background'
+      ? input.screenshot_background.background_label ?? null
+      : null,
+    background_note_md: input.screenshot_background?.analysis_role === 'background'
+      ? input.screenshot_background.background_note_md ?? ''
+      : '',
     caption: `模拟${mockCaptureKindTitles[saveTarget.kind]} ${nextIndex}`,
     file_path: `mock/snips/mock-snip-${nextIndex}.png`,
     created_at: timestamp,
@@ -3111,6 +3245,7 @@ const createMockSnipCapture = (
         screenshot_id: screenshotId,
         provider: provider.provider,
         prompt_kind: 'market-analysis',
+        analysis_context: input.analysis_context,
       })
       result = {
         ...result,

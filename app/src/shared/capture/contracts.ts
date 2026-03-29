@@ -2,10 +2,13 @@ import { z } from 'zod'
 import {
   AnnotationSemanticTypeSchema,
   AnnotationShapeSchema,
+  ScreenshotAnalysisRoleSchema,
+  ScreenshotBackgroundLayerSchema,
   ScreenshotSchema,
 } from '@shared/contracts/content'
 import { EntityIdSchema } from '@shared/contracts/base'
 import { CaptureKindSchema, SourceViewSchema } from '@shared/contracts/current-context'
+import { AiAnalysisContextInputSchema } from '@shared/ai/contracts'
 
 const AnnotationDraftInputSchema = z.object({
   shape: AnnotationShapeSchema,
@@ -47,6 +50,27 @@ export const SaveScreenshotAnnotationsInputSchema = z.object({
 })
 
 export const PendingSnipAnnotationSchema = AnnotationDraftInputSchema
+
+export const CaptureScreenshotBackgroundInputSchema = z.object({
+  analysis_role: ScreenshotAnalysisRoleSchema.default('event'),
+  analysis_session_id: EntityIdSchema.nullable().optional(),
+  background_layer: ScreenshotBackgroundLayerSchema.nullable().optional(),
+  background_label: z.string().trim().max(120).nullable().optional(),
+  background_note_md: z.string().trim().max(4_000).optional(),
+}).transform((value) => {
+  const analysisRole = value.analysis_role
+  return {
+    analysis_role: analysisRole,
+    analysis_session_id: value.analysis_session_id ?? null,
+    background_layer: analysisRole === 'background' ? value.background_layer ?? 'custom' : null,
+    background_label: analysisRole === 'background'
+      ? (value.background_label?.trim() || null)
+      : null,
+    background_note_md: analysisRole === 'background'
+      ? (value.background_note_md?.trim() || '')
+      : '',
+  }
+})
 
 export const CaptureResultSchema = z.object({
   screenshot: ScreenshotSchema,
@@ -116,6 +140,15 @@ export const CaptureSelectionSchema = z.object({
   height: z.number().positive().max(1),
 })
 
+export const CaptureAiContextPreferencesSchema = z.object({
+  schema_version: z.literal(1).default(1),
+  analysis_session_id: EntityIdSchema.nullable().default(null),
+  analysis_contract_id: EntityIdSchema.nullable().default(null),
+  analysis_contract_symbol: z.string().trim().max(64).default(''),
+  analysis_role: ScreenshotAnalysisRoleSchema.default('event'),
+  background_layer: ScreenshotBackgroundLayerSchema.default('macro'),
+})
+
 export const PendingSnipCaptureSchema = z.object({
   session_id: EntityIdSchema,
   contract_id: EntityIdSchema.optional(),
@@ -135,6 +168,14 @@ export const PendingSnipCaptureSchema = z.object({
   source_width: z.number().positive(),
   source_height: z.number().positive(),
   source_data_url: z.string().min(1),
+  analysis_context_defaults: CaptureAiContextPreferencesSchema.default({
+    schema_version: 1,
+    analysis_session_id: null,
+    analysis_contract_id: null,
+    analysis_contract_symbol: '',
+    analysis_role: 'event',
+    background_layer: 'macro',
+  }),
 })
 
 export const SnipCaptureSelectionInputSchema = z.object({
@@ -149,6 +190,8 @@ export const SavePendingSnipInputSchema = z.object({
   note_text: z.string().trim().max(12_000).optional(),
   annotated_image_data_url: z.string().min(1).optional(),
   annotation_document_json: z.string().min(2).optional(),
+  screenshot_background: CaptureScreenshotBackgroundInputSchema.optional(),
+  analysis_context: AiAnalysisContextInputSchema.optional(),
   run_ai: z.boolean().default(false),
   kind: CaptureKindSchema.optional(),
 })
@@ -181,6 +224,7 @@ export const SavePendingSnipResultSchema = CaptureResultSchema.extend({
 export type ImportScreenshotInput = z.infer<typeof ImportScreenshotInputSchema>
 export type SaveScreenshotAnnotationsInput = z.infer<typeof SaveScreenshotAnnotationsInputSchema>
 export type PendingSnipAnnotationInput = z.infer<typeof PendingSnipAnnotationSchema>
+export type CaptureScreenshotBackgroundInput = z.infer<typeof CaptureScreenshotBackgroundInputSchema>
 export type CaptureResult = z.infer<typeof CaptureResultSchema>
 export type CaptureCommandResult = z.infer<typeof CaptureCommandResultSchema>
 export type CaptureSessionContextInput = z.infer<typeof CaptureSessionContextInputSchema>
@@ -190,6 +234,7 @@ export type CaptureDisplay = z.infer<typeof CaptureDisplaySchema>
 export type CapturePreferences = z.infer<typeof CapturePreferencesSchema>
 export type SaveCapturePreferencesInput = z.infer<typeof SaveCapturePreferencesInputSchema>
 export type CaptureSelection = z.infer<typeof CaptureSelectionSchema>
+export type CaptureAiContextPreferences = z.infer<typeof CaptureAiContextPreferencesSchema>
 export type PendingSnipCapture = z.infer<typeof PendingSnipCaptureSchema>
 export type SnipCaptureSelectionInput = z.infer<typeof SnipCaptureSelectionInputSchema>
 export type SavePendingSnipInput = z.infer<typeof SavePendingSnipInputSchema>

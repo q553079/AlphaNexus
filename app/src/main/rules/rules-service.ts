@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getDatabase } from '@main/db/connection'
 import { loadTradeDetail } from '@main/db/repositories/workbench-repository'
+import { loadPeriodRecord } from '@main/period/period-record-service'
 import type { RuleHit, RuleRollupEntry } from '@shared/contracts/evaluation'
 import type { TradeDetailPayload } from '@shared/contracts/workbench'
 
@@ -150,15 +151,28 @@ export const getTradeRuleHits = async(paths: LocalFirstPaths, tradeId: string): 
 
 export const getPeriodRuleRollup = async(paths: LocalFirstPaths, periodId?: string): Promise<RuleRollupEntry[]> => {
   const db = await getDatabase(paths)
-  const tradeRows = db.prepare(`
+  const tradeRows = periodId
+    ? (() => {
+      const period = loadPeriodRecord(db, periodId)
+      return db.prepare(`
     SELECT t.id
     FROM trades t
     INNER JOIN sessions s ON s.id = t.session_id
     WHERE t.deleted_at IS NULL
       AND s.deleted_at IS NULL
-      AND (? IS NULL OR s.period_id = ?)
+      AND datetime(s.started_at) >= datetime(?)
+      AND datetime(s.started_at) <= datetime(?)
     ORDER BY t.opened_at ASC
-  `).all(periodId ?? null, periodId ?? null) as Array<{ id: string }>
+  `).all(period.start_at, period.end_at) as Array<{ id: string }>
+    })()
+    : db.prepare(`
+    SELECT t.id
+    FROM trades t
+    INNER JOIN sessions s ON s.id = t.session_id
+    WHERE t.deleted_at IS NULL
+      AND s.deleted_at IS NULL
+    ORDER BY t.opened_at ASC
+  `).all() as Array<{ id: string }>
 
   const activeRules = await listActiveRules(paths)
   if (tradeRows.length === 0 || activeRules.length === 0) {

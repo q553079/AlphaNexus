@@ -29,6 +29,7 @@ import {
   mapSession,
   mapTrade,
 } from '@main/db/repositories/workbench-mappers'
+import { loadPeriodRecord, loadSessionsForPeriod } from '@main/period/period-record-service'
 import { loadContentBlockMoveHistory, loadContentBlockMoveHistoryForBlock } from '@main/db/repositories/workbench-block-move-history'
 import {
   ensureCurrentContext,
@@ -174,10 +175,70 @@ const loadTradeScreenshots = (db: Database.Database, tradeId: string) => {
 
 type PeriodReviewInsightsInput = Pick<
   PeriodReviewPayload,
-  'evaluation_rollup' | 'feedback_items' | 'rule_rollup' | 'setup_leaderboard' | 'profile_snapshot' | 'training_insights'
+  | 'period_rollup'
+  | 'trade_metrics'
+  | 'latest_period_ai_review'
+  | 'ai_quality_summary'
+  | 'evaluation_rollup'
+  | 'feedback_items'
+  | 'rule_rollup'
+  | 'setup_leaderboard'
+  | 'profile_snapshot'
+  | 'training_insights'
 >
 
 const buildEmptyPeriodReviewInsights = (): PeriodReviewInsightsInput => ({
+  period_rollup: {
+    schema_version: 1,
+    period: mapPeriod({
+      id: 'period_empty',
+      schema_version: 1,
+      created_at: '1970-01-01T00:00:00.000Z',
+      deleted_at: null,
+      kind: 'week',
+      label: 'empty',
+      start_at: '1970-01-01T00:00:00.000Z',
+      end_at: '1970-01-01T00:00:00.000Z',
+    }),
+    period_key: 'week:empty',
+    generated_at: '1970-01-01T00:00:00.000Z',
+    generation_strategy: 'rebuild-from-local-records',
+    session_ids: [],
+    trade_ids: [],
+    stats: {
+      trade_count: 0,
+      resolved_trade_count: 0,
+      pending_trade_count: 0,
+      canceled_trade_count: 0,
+      win_count: 0,
+      loss_count: 0,
+      flat_count: 0,
+      total_pnl_r: 0,
+      avg_pnl_r: null,
+      win_rate_pct: null,
+      avg_holding_minutes: null,
+      plan_adherence_avg_pct: null,
+      ai_alignment_avg_pct: null,
+    },
+    pnl_curve: [],
+    tag_summary: [],
+    best_trade_ids: [],
+    worst_trade_ids: [],
+    latest_period_review_ai_run_id: null,
+    latest_period_review_generated_at: null,
+  },
+  trade_metrics: [],
+  latest_period_ai_review: null,
+  ai_quality_summary: {
+    schema_version: 1,
+    period_id: 'period_empty',
+    total_runs: 0,
+    structured_success_count: 0,
+    structured_failure_count: 0,
+    success_rate_pct: null,
+    providers: [],
+    recent_failures: [],
+  },
   evaluation_rollup: {
     calibration_buckets: [],
     ai_vs_human: [],
@@ -484,15 +545,23 @@ export const loadPeriodReview = (
   periodId?: string,
   input?: Partial<PeriodReviewInsightsInput>,
 ): PeriodReviewPayload => {
-  const resolvedPeriodId = periodId ?? getFirstId(db, 'periods', 'start_at')
-  const period = mapPeriod(db.prepare('SELECT * FROM periods WHERE id = ? LIMIT 1').get(resolvedPeriodId) as Record<string, unknown>)
-  const sessions = selectRows(db, 'SELECT * FROM sessions WHERE period_id = ? AND deleted_at IS NULL ORDER BY started_at ASC', [period.id]).map(mapSession)
+  const period = loadPeriodRecord(db, periodId)
+  const sessions = loadSessionsForPeriod(db, period)
   const contract = resolvePeriodReviewContract(db, sessions[0]?.contract_id)
   const sessionIds = sessions.map((session) => session.id)
   const placeholders = sessionIds.map(() => '?').join(', ')
   const analysisCards = sessionIds.length === 0
     ? []
-    : selectRows(db, `SELECT * FROM analysis_cards WHERE session_id IN (${placeholders}) AND deleted_at IS NULL ORDER BY created_at ASC`, sessionIds).map(mapAnalysisCard)
+    : selectRows(db, `
+      SELECT ac.*
+      FROM analysis_cards ac
+      INNER JOIN ai_runs ar ON ar.id = ac.ai_run_id
+      WHERE ac.session_id IN (${placeholders})
+        AND ac.deleted_at IS NULL
+        AND ar.deleted_at IS NULL
+        AND ar.prompt_kind = 'market-analysis'
+      ORDER BY ac.created_at ASC, ac.rowid ASC
+    `, sessionIds).map(mapAnalysisCard)
   const evaluations = sessionIds.length === 0
     ? []
     : selectRows(db, `SELECT * FROM evaluations WHERE session_id IN (${placeholders}) AND deleted_at IS NULL ORDER BY created_at ASC`, sessionIds).map(mapEvaluation)
@@ -506,10 +575,26 @@ export const loadPeriodReview = (
     period,
     contract,
     sessions,
+    period_rollup: {
+      ...insights.period_rollup,
+      period,
+      period_key: insights.period_rollup.period_key || `${period.kind}:${period.label}`,
+    },
+    trade_metrics: insights.trade_metrics,
     highlight_cards: selectPeriodHighlightCards(analysisCards),
+    latest_period_ai_review: insights.latest_period_ai_review,
+    ai_quality_summary: {
+      ...insights.ai_quality_summary,
+      period_id: period.id,
+    },
     evaluations,
     content_blocks: contentBlocks,
-    ...insights,
+    evaluation_rollup: insights.evaluation_rollup,
+    feedback_items: insights.feedback_items,
+    rule_rollup: insights.rule_rollup,
+    setup_leaderboard: insights.setup_leaderboard,
+    profile_snapshot: insights.profile_snapshot,
+    training_insights: insights.training_insights,
   })
 }
 

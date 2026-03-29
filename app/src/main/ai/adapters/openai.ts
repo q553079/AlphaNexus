@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { AiAdapter, AiAdapterRunInput, AiAdapterRunResult } from '@main/ai/adapters/base'
-import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contracts'
+import {
+  AiAnalysisDraftSchema,
+  PeriodReviewDraftSchema,
+  TradeReviewDraftSchema,
+} from '@shared/ai/contracts'
 
 const DEFAULT_MODEL = 'gpt-5.4-mini'
 const RESPONSES_ENDPOINT = 'https://api.openai.com/v1/responses'
@@ -121,6 +125,65 @@ const TRADE_REVIEW_JSON_SCHEMA = {
   ],
 } as const
 
+const PERIOD_REVIEW_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    summary_short: {
+      type: 'string',
+      minLength: 1,
+    },
+    strengths: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      items: {
+        type: 'string',
+        minLength: 1,
+      },
+    },
+    mistakes: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      items: {
+        type: 'string',
+        minLength: 1,
+      },
+    },
+    recurring_patterns: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      items: {
+        type: 'string',
+        minLength: 1,
+      },
+    },
+    action_items: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 6,
+      items: {
+        type: 'string',
+        minLength: 1,
+      },
+    },
+    deep_analysis_md: {
+      type: 'string',
+      minLength: 1,
+    },
+  },
+  required: [
+    'summary_short',
+    'strengths',
+    'mistakes',
+    'recurring_patterns',
+    'action_items',
+    'deep_analysis_md',
+  ],
+} as const
+
 type OpenAiErrorPayload = {
   error?: {
     message?: string
@@ -200,6 +263,14 @@ const resolveScreenshotDataUrls = async(input: AiAdapterRunInput) => {
   return urls
 }
 
+const resolveInlineAttachmentImageDataUrls = (input: AiAdapterRunInput) =>
+  (input.input.analysis_context?.attachments ?? [])
+    .filter((attachment) =>
+      attachment.kind === 'image'
+      && typeof attachment.data_url === 'string'
+      && attachment.data_url.trim().length > 0)
+    .map((attachment) => attachment.data_url!.trim())
+
 const extractOutputText = (payload: OpenAiResponsePayload) => {
   if (typeof payload.output_text === 'string' && payload.output_text.trim().length > 0) {
     return payload.output_text.trim()
@@ -224,9 +295,13 @@ const extractOutputText = (payload: OpenAiResponsePayload) => {
 
 const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
   const payload = extractJsonPayload(rawOutput)
-  return input.input.prompt_kind === 'trade-review'
-    ? TradeReviewDraftSchema.parse(payload)
-    : AiAnalysisDraftSchema.parse(payload)
+  if (input.input.prompt_kind === 'trade-review') {
+    return TradeReviewDraftSchema.parse(payload)
+  }
+  if (input.input.prompt_kind === 'period-review') {
+    return PeriodReviewDraftSchema.parse(payload)
+  }
+  return AiAnalysisDraftSchema.parse(payload)
 }
 
 const buildSystemPrompt = (input: AiAdapterRunInput) =>
@@ -241,6 +316,8 @@ const runOpenAiAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunR
   }
 
   const screenshotDataUrls = await resolveScreenshotDataUrls(input)
+  const inlineAttachmentDataUrls = resolveInlineAttachmentImageDataUrls(input)
+  const allImageDataUrls = [...screenshotDataUrls, ...inlineAttachmentDataUrls]
   const response = await fetch(RESPONSES_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -266,7 +343,7 @@ const runOpenAiAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunR
               type: 'input_text',
               text: input.promptPreview,
             },
-            ...screenshotDataUrls.map((imageUrl) => ({
+            ...allImageDataUrls.map((imageUrl) => ({
               type: 'input_image',
               image_url: imageUrl,
             })),
@@ -278,11 +355,15 @@ const runOpenAiAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunR
           type: 'json_schema',
           name: input.input.prompt_kind === 'trade-review'
             ? 'alpha_nexus_trade_review'
-            : 'alpha_nexus_market_analysis',
+            : input.input.prompt_kind === 'period-review'
+              ? 'alpha_nexus_period_review'
+              : 'alpha_nexus_market_analysis',
           strict: true,
           schema: input.input.prompt_kind === 'trade-review'
             ? TRADE_REVIEW_JSON_SCHEMA
-            : ANALYSIS_JSON_SCHEMA,
+            : input.input.prompt_kind === 'period-review'
+              ? PERIOD_REVIEW_JSON_SCHEMA
+              : ANALYSIS_JSON_SCHEMA,
         },
       },
     }),

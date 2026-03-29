@@ -24,6 +24,7 @@ import {
   restoreContentBlock,
   saveCurrentContext,
   saveAiAnalysisArtifacts,
+  saveAiAnalysisFailure,
   saveSessionRealtimeView,
   updateAnnotation,
   updateWorkbenchNote,
@@ -95,6 +96,7 @@ export const createWorkbenchNoteBlockForContext = async(paths: LocalFirstPaths, 
   createWorkbenchNote(paths, {
     session_id: input.session_id,
     trade_id: input.trade_id ?? null,
+    event_id: input.event_id ?? null,
     title: input.title,
     content_md: input.content_md,
   })
@@ -150,3 +152,8 @@ export const recordAiAnalysis = async(
   paths: LocalFirstPaths,
   input: Parameters<typeof saveAiAnalysisArtifacts>[1],
 ) => saveAiAnalysisArtifacts(paths, input)
+
+export const recordAiAnalysisFailure = async(
+  paths: LocalFirstPaths,
+  input: Parameters<typeof saveAiAnalysisFailure>[1],
+) => saveAiAnalysisFailure(paths, input)

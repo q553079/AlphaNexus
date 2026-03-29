@@ -87,6 +87,13 @@
   font-size: 0.94rem;
 }
 
+.event-card__directory-meta {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+}
+
 .event-card p {
   margin: 8px 0 0;
   color: var(--text-muted);

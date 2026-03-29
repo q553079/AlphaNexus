@@ -70,7 +70,7 @@ export const ContentBlockTargetManager = ({
   return (
     <div className="content-target-manager">
       <div className="content-target-manager__summary">
-        <p className="content-target-manager__eyebrow">Current Mount</p>
+        <p className="content-target-manager__eyebrow">当前挂载位置</p>
         <strong>{currentOption?.label ?? formatContextLabel(targetPayload, block)}</strong>
         <p className="content-target-manager__subtitle">
           {currentOption?.subtitle ?? '当前内容块仍挂在原始事件或未收录的目标上。'}

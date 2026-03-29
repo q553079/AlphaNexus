@@ -19,13 +19,6 @@ import type { EvaluationRecord, TradeRecord } from '@shared/contracts/trade'
 import type { AiRecordChain, SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import { buildAiComparisonViewModel } from './modules/session-ai-compare'
 import { SessionRealtimeViewPanel } from './SessionRealtimeViewPanel'
-import type { WorkbenchTab } from './session-workbench-types'
-
-const tabLabels: Record<WorkbenchTab, string> = {
-  view: '我的看法',
-  ai: 'AI 分析',
-  plan: '交易计划',
-}
 
 const toInputValue = (value: number | null | undefined) =>
   value == null ? '' : String(value)
@@ -407,7 +400,6 @@ const TradeLifecycleControls = ({
 }
 
 type SessionWorkspaceColumnProps = {
-  activeTab: WorkbenchTab
   activeAnchors: MarketAnchorView[]
   analysisCard: AnalysisCardRecord | null
   anchorReviewSuggestions: AnchorReviewSuggestionView[]
@@ -452,6 +444,7 @@ type SessionWorkspaceColumnProps = {
     price: number
   }) => void
   onPasteClipboardImage: () => void
+  onPasteClipboardImageAndRunAnalysis: () => void
   onReorderNoteBlocks: (input: {
     session_id: string
     context_type: 'session' | 'trade'
@@ -461,10 +454,11 @@ type SessionWorkspaceColumnProps = {
   onRestoreBlock: (block: ContentBlockRecord) => void
   onRealtimeDraftChange: (value: string) => void
   onRestoreAiRecord: (aiRunId: string) => void
+  onRunAnalysis: () => void
   onRunAnalysisAcrossProviders: () => void
   onSaveRealtimeView: () => void
+  onSaveRealtimeViewAndRunAnalysis: () => void
   onSetAnchorStatus: (anchorId: string, status: MarketAnchorStatus) => void
-  onTabChange: (tab: WorkbenchTab) => void
   payload: SessionWorkbenchPayload
   realtimeDraft: string
   realtimeViewBlock: ContentBlockRecord | null
@@ -478,7 +472,6 @@ type SessionWorkspaceColumnProps = {
 }
 
 export const SessionWorkspaceColumn = ({
-  activeTab,
   activeAnchors,
   analysisCard,
   anchorReviewSuggestions,
@@ -498,15 +491,17 @@ export const SessionWorkspaceColumn = ({
   onCreateNoteBlock,
   onOpenTrade,
   onPasteClipboardImage,
+  onPasteClipboardImageAndRunAnalysis,
   onReorderNoteBlocks,
   onReduceTrade,
   onRestoreBlock,
   onRealtimeDraftChange,
   onRestoreAiRecord,
+  onRunAnalysis,
   onRunAnalysisAcrossProviders,
   onSaveRealtimeView,
+  onSaveRealtimeViewAndRunAnalysis,
   onSetAnchorStatus,
-  onTabChange,
   payload,
   realtimeDraft,
   realtimeViewBlock,
@@ -524,104 +519,129 @@ export const SessionWorkspaceColumn = ({
 
   return (
     <section className="session-workbench__column session-workbench__column--workspace">
-    <SectionCard title="分析与 AI 工作台" subtitle="我的看法、AI 分析和交易计划">
-      <div className="tab-strip session-workbench__tabs">
-        {(['view', 'ai', 'plan'] as WorkbenchTab[]).map((tab) => (
-          <button
-            className={`tab-button ${activeTab === tab ? 'is-active' : ''}`.trim()}
-            key={tab}
-            type="button"
-            onClick={() => onTabChange(tab)}
-          >
-            {tabLabels[tab]}
-          </button>
-        ))}
-      </div>
-      <div className="session-workbench__tab-content">
-        {activeTab === 'view' ? (
-          <SessionRealtimeViewPanel
-            activeAnchors={activeAnchors}
-            busy={busy}
-            onComposerSuggestionAccept={onComposerSuggestionAccept}
-            onCreateNoteBlock={onCreateNoteBlock}
-            onDeleteBlock={onDeleteBlock}
-            onPasteClipboardImage={async() => {
-              onPasteClipboardImage()
-            }}
-            onRealtimeDraftChange={onRealtimeDraftChange}
-            onReorderNoteBlocks={async(input) => {
-              onReorderNoteBlocks(input)
-            }}
-            onRestoreBlock={onRestoreBlock}
-            onSaveRealtimeView={onSaveRealtimeView}
-            onUpdateNoteBlock={onUpdateNoteBlock}
-            payload={payload}
-            realtimeDraft={realtimeDraft}
-            realtimeViewBlock={realtimeViewBlock}
-            suggestions={composerSuggestions}
-          />
-        ) : null}
-        {activeTab === 'ai' ? (
+      <SectionCard
+        className="session-workbench__page-section"
+        title="页面笔记"
+        subtitle="顺着这一页写，AI 只在旁边给参考。"
+      >
+        <SessionRealtimeViewPanel
+          activeAnchors={activeAnchors}
+          analysisCard={analysisCard}
+          busy={busy}
+          onComposerSuggestionAccept={onComposerSuggestionAccept}
+          onCreateNoteBlock={onCreateNoteBlock}
+          onDeleteBlock={onDeleteBlock}
+          onPasteClipboardImage={async() => {
+            onPasteClipboardImage()
+          }}
+          onPasteClipboardImageAndRunAnalysis={async() => {
+            onPasteClipboardImageAndRunAnalysis()
+          }}
+          onRealtimeDraftChange={onRealtimeDraftChange}
+          onReorderNoteBlocks={async(input) => {
+            onReorderNoteBlocks(input)
+          }}
+          onRestoreBlock={onRestoreBlock}
+          onRunAnalysis={async() => {
+            onRunAnalysis()
+          }}
+          onSaveRealtimeView={onSaveRealtimeView}
+          onSaveRealtimeViewAndRunAnalysis={async() => {
+            onSaveRealtimeViewAndRunAnalysis()
+          }}
+          onUpdateNoteBlock={onUpdateNoteBlock}
+          payload={payload}
+          realtimeDraft={realtimeDraft}
+          realtimeViewBlock={realtimeViewBlock}
+          selectedScreenshotCaption={selectedScreenshot?.caption ?? null}
+          suggestions={composerSuggestions}
+        />
+      </SectionCard>
+
+      {analysisCard || deletedAiRecords.length > 0 ? (
+        <SectionCard
+          className="session-workbench__page-section"
+          title="完整 AI 回复"
+          subtitle="默认收起，需要时再展开。"
+        >
           <div className="session-workbench__editor">
             {analysisCard ? (
-              <>
-                <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
-                <div className="action-row">
-                  <button
-                    className="button is-secondary"
-                    disabled={busy}
-                    onClick={() => onDeleteAiRecord(analysisCard.ai_run_id)}
-                    type="button"
-                  >
-                    删除当前 AI 记录
-                  </button>
+              <details className="session-workbench__support-drawer" open={false}>
+                <summary className="session-workbench__support-summary">
+                  <div>
+                    <strong>查看这次 AI 完整回复</strong>
+                    <p>{analysisCard.summary_short}</p>
+                  </div>
+                  <span className="status-pill">按需展开</span>
+                </summary>
+                <div className="session-workbench__support-stack">
+                  <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
+                  <div className="action-row">
+                    <button
+                      className="button is-secondary"
+                      disabled={busy}
+                      onClick={() => onDeleteAiRecord(analysisCard.ai_run_id)}
+                      type="button"
+                    >
+                      删除当前 AI 记录
+                    </button>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <p className="empty-state">AI 分析生成后会显示在这里。</p>
-            )}
-            <AiComparisonPanel
-              busy={busy}
-              onRunCompare={() => {
-                onRunAnalysisAcrossProviders()
-              }}
-              viewModel={aiComparison}
-            />
-          </div>
-        ) : null}
-        {activeTab === 'plan' ? (
-          <p className="workbench-text">{payload.panels.trade_plan}</p>
-        ) : null}
-      </div>
-    </SectionCard>
-
-    <SectionCard title="分析总结" subtitle="结构化结论与执行位">
-      {analysisCard ? (
-        <AnalysisCardView aiRun={analysisRun} card={analysisCard} />
-      ) : (
-        <p className="empty-state">还没有 AI 摘要。</p>
-      )}
-      {deletedAiRecords.length > 0 ? (
-        <div className="session-workbench__deleted-group">
-          <p className="session-workbench__deleted-label">已删除 AI 记录</p>
-          {deletedAiRecords.map((record) => (
-            <article className="session-workbench__content-block is-deleted" key={record.ai_run.id}>
-              <div className="session-workbench__content-header">
+              </details>
+            ) : null}
+            {deletedAiRecords.length > 0 ? (
+              <details className="session-workbench__support-drawer">
+                <summary className="session-workbench__support-summary">
+                  <div>
+                    <strong>已删除的 AI 记录</strong>
+                    <p>保留恢复入口，不放到主舞台。</p>
+                  </div>
+                  <span className="status-pill">{deletedAiRecords.length}</span>
+                </summary>
+                <div className="session-workbench__support-stack">
+                  {deletedAiRecords.map((record) => (
+                    <article className="session-workbench__content-block is-deleted" key={record.ai_run.id}>
+                      <div className="session-workbench__content-header">
+                        <div>
+                          <h3>{record.content_block?.title ?? record.analysis_card?.summary_short ?? record.ai_run.model}</h3>
+                          <p className="session-workbench__content-meta">{record.ai_run.provider} · {record.ai_run.prompt_kind}</p>
+                        </div>
+                        <button className="button is-secondary" disabled={busy} onClick={() => onRestoreAiRecord(record.ai_run.id)} type="button">
+                          恢复
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+            <details className="session-workbench__support-drawer">
+              <summary className="session-workbench__support-summary">
                 <div>
-                  <h3>{record.content_block?.title ?? record.analysis_card?.summary_short ?? record.ai_run.model}</h3>
-                  <p className="session-workbench__content-meta">{record.ai_run.provider} · {record.ai_run.prompt_kind}</p>
+                  <strong>更多 AI 对照</strong>
+                  <p>需要时再展开，不让对照视图常驻占位。</p>
                 </div>
-                <button className="button is-secondary" disabled={busy} onClick={() => onRestoreAiRecord(record.ai_run.id)} type="button">
-                  恢复
-                </button>
+                <span className="status-pill">按需展开</span>
+              </summary>
+              <div className="session-workbench__support-stack">
+                <AiComparisonPanel
+                  busy={busy}
+                  onRunCompare={() => {
+                    onRunAnalysisAcrossProviders()
+                  }}
+                  viewModel={aiComparison}
+                />
               </div>
-            </article>
-          ))}
-        </div>
+            </details>
+          </div>
+        </SectionCard>
       ) : null}
-    </SectionCard>
 
-    <SectionCard title="交易快照" subtitle="当前交易上下文与最小交易动作">
+      <SectionCard
+        className="session-workbench__page-section"
+        title="交易块"
+        subtitle="只放最小交易动作。"
+      >
       {currentTrade ? (
         <TradeSnapshotCard trade={currentTrade} />
       ) : (
@@ -636,38 +656,54 @@ export const SessionWorkspaceColumn = ({
         onOpenTrade={onOpenTrade}
         onReduceTrade={onReduceTrade}
       />
-    </SectionCard>
+      </SectionCard>
 
-    <SectionCard title="Session 复盘" subtitle="执行评估">
-      {latestEvaluation ? (
-        <div className="session-workbench__review">
-          <p className="session-workbench__review-score">评分 {latestEvaluation.score}</p>
-          <p className="workbench-text">{latestEvaluation.note_md}</p>
+      <details className="session-workbench__support-drawer">
+        <summary className="session-workbench__support-summary">
+          <div>
+            <strong>补充上下文与复核</strong>
+            <p>锚点、知识、相似案例和复盘都放这里，需要时再展开。</p>
+          </div>
+          <span className="status-pill">按需展开</span>
+        </summary>
+        <div className="session-workbench__support-stack">
+          <section className="session-workbench__support-section">
+            <h3>复盘</h3>
+            {latestEvaluation ? (
+              <div className="session-workbench__review">
+                <p className="session-workbench__review-score">评分 {latestEvaluation.score}</p>
+                <p className="workbench-text">{latestEvaluation.note_md}</p>
+              </div>
+            ) : (
+              <p className="empty-state">还没有记录复盘。</p>
+            )}
+          </section>
+
+          <section className="session-workbench__support-section">
+            <h3>锚点</h3>
+            <ActiveAnchorsPanel
+              anchors={anchors}
+              busy={busy}
+              onSetStatus={onSetAnchorStatus}
+            />
+          </section>
+
+          <section className="session-workbench__support-section">
+            <h3>锚点复核建议</h3>
+            <AnchorReviewSuggestionsPanel suggestions={anchorReviewSuggestions} />
+          </section>
+
+          <section className="session-workbench__support-section">
+            <h3>命中的知识</h3>
+            <GroundingHitsPanel hits={groundingHits} />
+          </section>
+
+          <section className="session-workbench__support-section">
+            <h3>相似案例</h3>
+            <SimilarCasesPanel cases={similarCases} />
+          </section>
         </div>
-      ) : (
-        <p className="empty-state">还没有记录复盘。</p>
-      )}
-    </SectionCard>
-
-    <SectionCard title="Active Anchors" subtitle="用户确认后进入上下文层的关键区域记忆">
-      <ActiveAnchorsPanel
-        anchors={anchors}
-        busy={busy}
-        onSetStatus={onSetAnchorStatus}
-      />
-    </SectionCard>
-
-    <SectionCard title="Anchor Review Suggestions" subtitle="自动评估仅作建议，最终状态由你决定">
-      <AnchorReviewSuggestionsPanel suggestions={anchorReviewSuggestions} />
-    </SectionCard>
-
-    <SectionCard title="Grounding Hits" subtitle="当前 AI 分析命中的 approved knowledge">
-      <GroundingHitsPanel hits={groundingHits} />
-    </SectionCard>
-
-    <SectionCard title="Similar Cases" subtitle="本地召回的相关样本，仅展示少量摘要">
-      <SimilarCasesPanel cases={similarCases} />
-    </SectionCard>
+      </details>
     </section>
   )
 }

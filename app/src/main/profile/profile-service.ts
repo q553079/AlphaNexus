@@ -1,17 +1,39 @@
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getPeriodEvaluationRollup } from '@main/evaluation/evaluation-service'
 import { getPeriodFeedbackBundle } from '@main/feedback/feedback-service'
-import type { RankingExplanationPayload, TrainingInsight, UserProfile } from '@shared/contracts/evaluation'
+import type {
+  FeedbackItem,
+  PeriodEvaluationRollup,
+  RankingExplanationPayload,
+  SetupLeaderboardEntry,
+  TrainingInsight,
+  UserProfile,
+} from '@shared/contracts/evaluation'
+import type { PeriodRollup, PeriodTradeMetric } from '@shared/contracts/period-review'
 
 const formatPct = (value: number | null | undefined) => value === null || value === undefined ? '待补充' : `${value}%`
 
 const formatR = (value: number | null | undefined) => value === null || value === undefined ? '待补充' : `${value}R`
 
-export const getUserProfileSnapshot = async(paths: LocalFirstPaths, periodId?: string): Promise<UserProfile> => {
-  const [rollup, feedback] = await Promise.all([
-    getPeriodEvaluationRollup(paths, periodId),
-    getPeriodFeedbackBundle(paths, periodId),
-  ])
+export const getUserProfileSnapshot = async(
+  paths: LocalFirstPaths,
+  periodId?: string,
+  input?: {
+    evaluation_rollup?: PeriodEvaluationRollup
+    feedback_bundle?: {
+      feedback_items: FeedbackItem[]
+      setup_leaderboard: SetupLeaderboardEntry[]
+    }
+    period_rollup?: PeriodRollup
+    trade_metrics?: PeriodTradeMetric[]
+  },
+): Promise<UserProfile> => {
+  const rollup = input?.evaluation_rollup ?? await getPeriodEvaluationRollup(paths, periodId)
+  const feedback = input?.feedback_bundle ?? await getPeriodFeedbackBundle(paths, periodId, {
+    evaluation_rollup: rollup,
+    period_rollup: input?.period_rollup,
+    trade_metrics: input?.trade_metrics,
+  })
 
   const strongestSetup = feedback.setup_leaderboard[0]
   const weakestPatterns = rollup.error_patterns.slice(0, 2)
@@ -78,11 +100,25 @@ export const getUserProfileSnapshot = async(paths: LocalFirstPaths, periodId?: s
   }
 }
 
-export const getTrainingInsights = async(paths: LocalFirstPaths, periodId?: string): Promise<TrainingInsight[]> => {
-  const [rollup, feedback] = await Promise.all([
-    getPeriodEvaluationRollup(paths, periodId),
-    getPeriodFeedbackBundle(paths, periodId),
-  ])
+export const getTrainingInsights = async(
+  paths: LocalFirstPaths,
+  periodId?: string,
+  input?: {
+    evaluation_rollup?: PeriodEvaluationRollup
+    feedback_bundle?: {
+      feedback_items: FeedbackItem[]
+      setup_leaderboard: SetupLeaderboardEntry[]
+    }
+    period_rollup?: PeriodRollup
+    trade_metrics?: PeriodTradeMetric[]
+  },
+): Promise<TrainingInsight[]> => {
+  const rollup = input?.evaluation_rollup ?? await getPeriodEvaluationRollup(paths, periodId)
+  const feedback = input?.feedback_bundle ?? await getPeriodFeedbackBundle(paths, periodId, {
+    evaluation_rollup: rollup,
+    period_rollup: input?.period_rollup,
+    trade_metrics: input?.trade_metrics,
+  })
 
   const strongestSetup = feedback.setup_leaderboard[0] ?? null
   const strongestKnowledge = rollup.effective_knowledge[0] ?? null

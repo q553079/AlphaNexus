@@ -1,5 +1,9 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import type { CurrentTargetOption, CurrentTargetOptionsPayload } from '@shared/contracts/workbench'
+import {
+  translateTargetOptionLabel,
+  translateTargetOptionSubtitle,
+} from '@app/ui/display-text'
 
 type TargetSelectorData = Pick<CurrentTargetOptionsPayload, 'current_context' | 'options' | 'groups'>
 
@@ -21,16 +25,16 @@ type TargetSection = {
 }
 
 const kindLabels: Record<CurrentTargetOption['target_kind'], string> = {
-  session: 'Session',
-  trade: 'Trade',
-  period: 'Period',
+  session: '工作过程',
+  trade: '交易',
+  period: '周期',
 }
 
 const buildSearchText = (option: CurrentTargetOption) => [
-  option.label,
-  option.subtitle,
+  translateTargetOptionLabel(option.label),
+  translateTargetOptionSubtitle(option.subtitle),
   option.search_text,
-  option.previous_period_trade_index != null ? `上一周期 第${option.previous_period_trade_index}笔 trade` : '',
+  option.previous_period_trade_index != null ? `上一周期 第${option.previous_period_trade_index}笔交易` : '',
 ].filter(Boolean).join(' ').toLowerCase()
 
 const buildSections = (
@@ -45,8 +49,8 @@ const buildSections = (
   const sections: TargetSection[] = [
     { key: 'current', title: '当前目标', options: targetPayload.groups.current },
     { key: 'recent', title: '最近目标', options: targetPayload.groups.recent },
-    { key: 'history', title: '历史 Session / Trade', options: targetPayload.groups.history },
-    { key: 'previous_period_trades', title: '上一周期 Trade 快捷定位', options: targetPayload.groups.previous_period_trades },
+    { key: 'history', title: '历史工作过程 / 交易', options: targetPayload.groups.history },
+    { key: 'previous_period_trades', title: '上一周期交易快捷定位', options: targetPayload.groups.previous_period_trades },
   ]
 
   return sections.filter((section) => section.options.length > 0)
@@ -55,7 +59,7 @@ const buildSections = (
 export const TargetSelector = ({
   busy,
   emptyMessage = '当前没有可选目标。',
-  label = 'Target',
+  label = '目标',
   onSelect,
   selectedOptionId,
   targetPayload,
@@ -87,10 +91,10 @@ export const TargetSelector = ({
         type="button"
       >
         <span className="target-selector__trigger-copy">
-          <strong>{selectedOption?.label ?? triggerPlaceholder}</strong>
-          <span>{selectedOption?.subtitle ?? '点击切换 current target、历史 session / trade，或直接搜索。'}</span>
+          <strong>{selectedOption ? translateTargetOptionLabel(selectedOption.label) : triggerPlaceholder}</strong>
+          <span>{selectedOption ? translateTargetOptionSubtitle(selectedOption.subtitle) : '点击切换当前目标、历史工作过程或交易，也可以直接搜索。'}</span>
         </span>
-        <span className="target-selector__trigger-meta">{selectedOption ? kindLabels[selectedOption.target_kind] : 'Open'}</span>
+        <span className="target-selector__trigger-meta">{selectedOption ? kindLabels[selectedOption.target_kind] : '展开'}</span>
       </button>
 
       {isOpen ? (
@@ -101,7 +105,7 @@ export const TargetSelector = ({
               className="inline-input"
               disabled={busy}
               onChange={(event) => setSearchText(event.target.value)}
-              placeholder="搜索当前目标、历史 session / trade、上一周期第 N 笔 trade"
+              placeholder="搜索当前目标、历史工作过程、历史交易或上一周期第 N 笔交易"
               type="search"
               value={searchText}
             />
@@ -131,16 +135,16 @@ export const TargetSelector = ({
                     type="button"
                   >
                     <div className="target-selector__option-head">
-                      <strong>{option.label}</strong>
+                      <strong>{translateTargetOptionLabel(option.label)}</strong>
                       <div className="target-selector__badges">
                         <span className="status-pill">{kindLabels[option.target_kind]}</span>
-                        {option.is_current ? <span className="status-pill is-active">Current</span> : null}
+                        {option.is_current ? <span className="status-pill is-active">当前</span> : null}
                         {option.previous_period_trade_index != null ? (
                           <span className="status-pill">上一周期 #{option.previous_period_trade_index}</span>
                         ) : null}
                       </div>
                     </div>
-                    <p>{option.subtitle}</p>
+                    <p>{translateTargetOptionSubtitle(option.subtitle)}</p>
                   </button>
                 ))}
               </div>

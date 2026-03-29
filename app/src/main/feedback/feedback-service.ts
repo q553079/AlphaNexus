@@ -1,16 +1,19 @@
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getDatabase } from '@main/db/connection'
 import { loadTradeDetail } from '@main/db/repositories/workbench-repository'
+import { getPeriodEvaluationRollup, getTradeEvaluationSummary } from '@main/evaluation/evaluation-service'
+import { buildPeriodRollupBundle } from '@main/period/period-rollup-service'
+import { getTradeRuleHits } from '@main/rules/rules-service'
 import {
   type DisciplineScore,
   type FeedbackItem,
+  type PeriodEvaluationRollup,
   type RuleHit,
   type SetupLeaderboardEntry,
   type TradeEvaluationSummary,
 } from '@shared/contracts/evaluation'
+import type { PeriodRollup, PeriodTradeMetric } from '@shared/contracts/period-review'
 import type { TradeDetailPayload } from '@shared/contracts/workbench'
-import { getPeriodEvaluationRollup, getTradeEvaluationSummary } from '@main/evaluation/evaluation-service'
-import { getTradeRuleHits } from '@main/rules/rules-service'
 
 const average = (values: number[]) => values.length > 0
   ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2))
@@ -24,11 +27,61 @@ const loadPeriodEvidenceLabel = (
   db: Awaited<ReturnType<typeof getDatabase>>,
   periodId?: string,
 ) => {
-  const row = periodId
-    ? db.prepare('SELECT label FROM periods WHERE id = ? LIMIT 1').get(periodId) as { label: string } | undefined
-    : db.prepare('SELECT label FROM periods ORDER BY start_at ASC LIMIT 1').get() as { label: string } | undefined
+  if (!periodId) {
+    return '当前样本池'
+  }
+
+  const row = db.prepare('SELECT label FROM periods WHERE id = ? LIMIT 1').get(periodId) as { label: string } | undefined
 
   return row?.label ?? periodId ?? '当前周期'
+}
+
+const buildSetupLeaderboardFromTradeMetrics = (
+  tradeMetrics: PeriodTradeMetric[],
+): SetupLeaderboardEntry[] => {
+  const setupMap = new Map<string, PeriodTradeMetric[]>()
+  for (const metric of tradeMetrics) {
+    const setupTag = metric.tags.find((tag) => tag.category === 'setup')?.label ?? 'untagged'
+    const list = setupMap.get(setupTag) ?? []
+    list.push(metric)
+    setupMap.set(setupTag, list)
+  }
+
+  return [...setupMap.entries()]
+    .map(([label, items]) => {
+      const pnlValues = items.map((item) => item.pnl_r).filter((item): item is number => item !== null)
+      return {
+        id: `setup_${label}`,
+        label,
+        sample_count: items.length,
+        win_rate_pct: pnlValues.length > 0
+          ? Math.round((pnlValues.filter((item) => item > 0).length / pnlValues.length) * 100)
+          : null,
+        avg_r: average(pnlValues),
+        discipline_avg_pct: average(items.map((item) => item.plan_adherence_score).filter((item): item is number => item !== null)),
+        ai_alignment_pct: average(items.map((item) => item.ai_alignment_score).filter((item): item is number => item !== null)),
+      }
+    })
+    .sort((left, right) => {
+      if (right.sample_count !== left.sample_count) {
+        return right.sample_count - left.sample_count
+      }
+
+      const rightAvgR = right.avg_r ?? Number.NEGATIVE_INFINITY
+      const leftAvgR = left.avg_r ?? Number.NEGATIVE_INFINITY
+      if (rightAvgR !== leftAvgR) {
+        return rightAvgR - leftAvgR
+      }
+
+      const rightWinRate = right.win_rate_pct ?? Number.NEGATIVE_INFINITY
+      const leftWinRate = left.win_rate_pct ?? Number.NEGATIVE_INFINITY
+      if (rightWinRate !== leftWinRate) {
+        return rightWinRate - leftWinRate
+      }
+
+      return left.label.localeCompare(right.label)
+    })
+    .slice(0, 6)
 }
 
 export const getTradeFeedbackBundle = async(
@@ -131,80 +184,26 @@ export const buildTradeFeedbackBundle = (input: {
   }
 }
 
-export const getPeriodFeedbackBundle = async(paths: LocalFirstPaths, periodId?: string) => {
+export const getPeriodFeedbackBundle = async(
+  paths: LocalFirstPaths,
+  periodId?: string,
+  input?: {
+    evaluation_rollup?: PeriodEvaluationRollup
+    period_rollup?: PeriodRollup
+    trade_metrics?: PeriodTradeMetric[]
+  },
+) => {
   const db = await getDatabase(paths)
   const periodLabel = loadPeriodEvidenceLabel(db, periodId)
-  const rollup = await getPeriodEvaluationRollup(paths, periodId)
-  const rows = db.prepare(`
-    SELECT
-      s.tags_json,
-      t.pnl_r,
-      e.score
-    FROM sessions s
-    LEFT JOIN trades t ON t.session_id = s.id AND t.deleted_at IS NULL
-    LEFT JOIN evaluations e ON e.trade_id = t.id AND e.deleted_at IS NULL
-    WHERE s.deleted_at IS NULL
-      AND (? IS NULL OR s.period_id = ?)
-  `).all(periodId ?? null, periodId ?? null) as Array<{
-    tags_json: string | null
-    pnl_r: number | null
-    score: number | null
-  }>
+  const rollup = input?.evaluation_rollup ?? await getPeriodEvaluationRollup(paths, periodId)
+  const tradeMetrics = input?.trade_metrics
+    ?? (await buildPeriodRollupBundle(paths, {
+      period_id: periodId,
+      latest_period_review: null,
+    })).trade_metrics
+  const setupLeaderboard = buildSetupLeaderboardFromTradeMetrics(tradeMetrics)
 
-  const setupMap = new Map<string, Array<{ pnl_r: number | null, score: number | null }>>()
-  for (const row of rows) {
-    const tags = row.tags_json ? (() => {
-      try {
-        const parsed = JSON.parse(row.tags_json) as unknown
-        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
-      } catch {
-        return []
-      }
-    })() : []
-    const setup = tags[0] ?? 'untagged'
-    const list = setupMap.get(setup) ?? []
-    list.push({ pnl_r: row.pnl_r, score: row.score })
-    setupMap.set(setup, list)
-  }
-
-  const setupLeaderboard: SetupLeaderboardEntry[] = [...setupMap.entries()]
-    .map(([label, items]) => {
-      const pnlValues = items.map((item) => item.pnl_r).filter((item): item is number => item !== null)
-      const winRate = pnlValues.length > 0
-        ? Math.round((pnlValues.filter((item) => item > 0).length / pnlValues.length) * 100)
-        : null
-      return {
-        id: `setup_${label}`,
-        label,
-        sample_count: items.length,
-        win_rate_pct: winRate,
-        avg_r: average(pnlValues),
-        discipline_avg_pct: average(items.map((item) => item.score).filter((item): item is number => item !== null)),
-        ai_alignment_pct: rollup.ai_vs_human[0]?.ai_value_pct ?? null,
-      }
-    })
-    .sort((left, right) => {
-      if (right.sample_count !== left.sample_count) {
-        return right.sample_count - left.sample_count
-      }
-
-      const rightAvgR = right.avg_r ?? Number.NEGATIVE_INFINITY
-      const leftAvgR = left.avg_r ?? Number.NEGATIVE_INFINITY
-      if (rightAvgR !== leftAvgR) {
-        return rightAvgR - leftAvgR
-      }
-
-      const rightWinRate = right.win_rate_pct ?? Number.NEGATIVE_INFINITY
-      const leftWinRate = left.win_rate_pct ?? Number.NEGATIVE_INFINITY
-      if (rightWinRate !== leftWinRate) {
-        return rightWinRate - leftWinRate
-      }
-
-      return left.label.localeCompare(right.label)
-    })
-    .slice(0, 6)
-
-  const hasPeriodEvidence = rows.length > 0
+  const hasPeriodEvidence = tradeMetrics.length > 0
     || rollup.evaluated_count > 0
     || rollup.pending_count > 0
     || rollup.error_patterns.length > 0

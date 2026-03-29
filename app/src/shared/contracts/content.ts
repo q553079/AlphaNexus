@@ -1,7 +1,15 @@
 import { z } from 'zod'
 import { AuditFieldsSchema, EntityIdSchema } from '@shared/contracts/base'
 
-export const AnnotationShapeSchema = z.enum(['rectangle', 'ellipse', 'line', 'arrow', 'text'])
+export const AnnotationShapeSchema = z.enum([
+  'rectangle',
+  'ellipse',
+  'line',
+  'arrow',
+  'text',
+  'brush',
+  'fib_retracement',
+])
 export const AnnotationSemanticTypeSchema = z.enum([
   'support',
   'resistance',
@@ -16,6 +24,8 @@ export const AnnotationSemanticTypeSchema = z.enum([
 ])
 export const ContentContextTypeSchema = z.enum(['session', 'event', 'trade', 'period'])
 export const MovableContentContextTypeSchema = z.enum(['session', 'trade', 'period'])
+export const ScreenshotAnalysisRoleSchema = z.enum(['event', 'background'])
+export const ScreenshotBackgroundLayerSchema = z.enum(['macro', 'htf', 'structure', 'execution', 'custom'])
 
 export const AnnotationSchema = AuditFieldsSchema.extend({
   screenshot_id: EntityIdSchema,
@@ -38,6 +48,11 @@ export const ScreenshotSchema = AuditFieldsSchema.extend({
   session_id: EntityIdSchema,
   event_id: EntityIdSchema.nullable(),
   kind: z.enum(['chart', 'execution', 'exit']),
+  analysis_role: ScreenshotAnalysisRoleSchema.default('event'),
+  analysis_session_id: EntityIdSchema.nullable().default(null),
+  background_layer: ScreenshotBackgroundLayerSchema.nullable().default(null),
+  background_label: z.string().nullable().default(null),
+  background_note_md: z.string().default(''),
   file_path: z.string().min(1),
   asset_url: z.string().min(1),
   raw_file_path: z.string().min(1),
@@ -80,5 +95,7 @@ export const ContentBlockSchema = AuditFieldsSchema.extend({
 
 export type AnnotationRecord = z.infer<typeof AnnotationSchema>
 export type ScreenshotRecord = z.infer<typeof ScreenshotSchema>
+export type ScreenshotAnalysisRole = z.infer<typeof ScreenshotAnalysisRoleSchema>
+export type ScreenshotBackgroundLayer = z.infer<typeof ScreenshotBackgroundLayerSchema>
 export type ContentBlockMoveAuditRecord = z.infer<typeof ContentBlockMoveAuditSchema>
 export type ContentBlockRecord = z.infer<typeof ContentBlockSchema>

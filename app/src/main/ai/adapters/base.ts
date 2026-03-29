@@ -3,6 +3,7 @@ import type { LocalFirstPaths } from '@main/app-shell/paths'
 import type { ProviderSecretResolution } from '@main/ai/provider-config-storage'
 import type {
   AiAnalysisDraft,
+  PeriodReviewDraft,
   AiProviderConfig,
   MockAiRunResult,
   PromptTemplate,
@@ -25,7 +26,7 @@ export type AiAdapterRunInput = {
 }
 
 export type AiAdapterRunResult = {
-  analysis: AiAnalysisDraft | TradeReviewDraft
+  analysis: AiAnalysisDraft | TradeReviewDraft | PeriodReviewDraft
   model: string
   raw_output: string
 }

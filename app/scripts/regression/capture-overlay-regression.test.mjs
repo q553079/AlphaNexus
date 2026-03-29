@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { access, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
+import { readCaptureAiContextPreferences } from '../../src/main/capture/capture-ai-context-preferences-storage.ts'
 import { savePendingSnip } from '../../src/main/capture/capture-service.ts'
 import {
   getSessionWorkbench,
@@ -11,8 +12,10 @@ import {
 import {
   createCaptureSaveDependencies,
   insertContract,
+  insertEvent,
   insertPeriod,
   insertSession,
+  insertScreenshot,
   insertTrade,
   setRegressionPendingCapture,
   testCaptureDataUrl,
@@ -90,6 +93,13 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
         note_text: '回踩不破，先按延续处理。',
         annotated_image_data_url: testCaptureDataUrl,
         annotation_document_json: annotationDocumentJson,
+        screenshot_background: {
+          analysis_role: 'background',
+          analysis_session_id: 'session_capture_save',
+          background_layer: 'macro',
+          background_label: 'NQ 开盘大背景',
+          background_note_md: '把这张图保留成开盘宏观背景，供后续执行截图引用。',
+        },
         run_ai: false,
       }, createCaptureSaveDependencies(paths))
 
@@ -110,6 +120,11 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
       assert.equal(savedScreenshot?.raw_file_path?.length > 0, true)
       assert.equal(savedScreenshot?.annotated_file_path?.length > 0, true)
       assert.equal(savedScreenshot?.annotations_json_path?.length > 0, true)
+      assert.equal(savedScreenshot?.analysis_role, 'background')
+      assert.equal(savedScreenshot?.analysis_session_id, 'session_capture_save')
+      assert.equal(savedScreenshot?.background_layer, 'macro')
+      assert.equal(savedScreenshot?.background_label, 'NQ 开盘大背景')
+      assert.equal(savedScreenshot?.background_note_md, '把这张图保留成开盘宏观背景，供后续执行截图引用。')
       await access(path.join(paths.vaultDir, savedScreenshot.raw_file_path))
       await access(path.join(paths.vaultDir, savedScreenshot.annotated_file_path))
       await access(path.join(paths.vaultDir, savedScreenshot.annotations_json_path))
@@ -199,6 +214,101 @@ test('AlphaNexus capture overlay regression guards', async(t) => {
       assert.equal(aiRun?.structured_response_json.length > 0, true)
       assert.equal(aiEvent?.trade_id, 'trade_capture_ai_open')
       assert.equal(aiCard?.trade_id, 'trade_capture_ai_open')
+    })
+  })
+
+  await t.test('overlay save plus AI passes explicit analysis session, custom contract symbol, and persists capture AI context defaults', async() => {
+    await withTempDb('capture-overlay-ai-context', async({ paths, db, nextIso }) => {
+      insertPeriod(db, nextIso, { id: 'period_capture_ai_context_nq' })
+      insertPeriod(db, nextIso, { id: 'period_capture_ai_context_gc', label: 'GC week' })
+      insertContract(db, nextIso, { id: 'contract_capture_ai_context_nq', symbol: 'NQ' })
+      insertContract(db, nextIso, { id: 'contract_capture_ai_context_gc', symbol: 'GC' })
+      insertSession(db, nextIso, {
+        id: 'session_capture_ai_context_nq',
+        contract_id: 'contract_capture_ai_context_nq',
+        period_id: 'period_capture_ai_context_nq',
+        title: 'NQ execution session',
+        tags: ['execution'],
+      })
+      insertSession(db, nextIso, {
+        id: 'session_capture_ai_context_gc',
+        contract_id: 'contract_capture_ai_context_gc',
+        period_id: 'period_capture_ai_context_gc',
+        title: 'GC macro session',
+        tags: ['macro'],
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_capture_ai_context_gc_background',
+        session_id: 'session_capture_ai_context_gc',
+        event_type: 'screenshot',
+        title: 'GC macro background',
+        summary: 'macro background',
+        screenshot_id: 'screenshot_capture_ai_context_gc_background',
+      })
+      insertScreenshot(db, nextIso, {
+        id: 'screenshot_capture_ai_context_gc_background',
+        session_id: 'session_capture_ai_context_gc',
+        event_id: 'event_capture_ai_context_gc_background',
+        caption: 'GC daily background',
+        analysis_role: 'background',
+        analysis_session_id: 'session_capture_ai_context_gc',
+        background_layer: 'macro',
+        background_label: 'GC 日线大背景',
+        background_note_md: '周线趋势仍偏上。',
+      })
+
+      setRegressionPendingCapture({
+        session_id: 'session_capture_ai_context_nq',
+        contract_id: 'contract_capture_ai_context_nq',
+        period_id: 'period_capture_ai_context_nq',
+        session_title: 'NQ execution session',
+        contract_symbol: 'NQ',
+      })
+
+      const baseDependencies = createCaptureSaveDependencies(paths)
+      const result = await savePendingSnip(paths, {}, {
+        selection: fullSelection,
+        target_context: {
+          session_id: 'session_capture_ai_context_nq',
+          trade_id: null,
+          source_view: 'capture-overlay',
+          kind: 'chart',
+        },
+        note_text: '执行图落到 NQ，但 AI 要按 GC 宏观背景来读。',
+        analysis_context: {
+          analysis_session_id: 'session_capture_ai_context_gc',
+          analysis_contract_symbol: 'GCX-MACRO',
+          background_screenshot_ids: ['screenshot_capture_ai_context_gc_background'],
+          background_note_md: '先看 GC 的日线结构，再读这张执行图。',
+        },
+        run_ai: true,
+      }, createCaptureSaveDependencies(paths, {
+        runAiAnalysis: async(_paths, _env, analysisInput) => {
+          assert.equal(analysisInput.session_id, 'session_capture_ai_context_nq')
+          assert.equal(analysisInput.analysis_context?.analysis_session_id, 'session_capture_ai_context_gc')
+          assert.equal(analysisInput.analysis_context?.analysis_contract_id, undefined)
+          assert.equal(analysisInput.analysis_context?.analysis_contract_symbol, 'GCX-MACRO')
+          assert.deepEqual(
+            analysisInput.analysis_context?.background_screenshot_ids,
+            ['screenshot_capture_ai_context_gc_background'],
+          )
+          assert.equal(
+            analysisInput.analysis_context?.background_note_md,
+            '先看 GC 的日线结构，再读这张执行图。',
+          )
+          return baseDependencies.runAiAnalysis(_paths, _env, analysisInput)
+        },
+      }))
+
+      assert.equal(result.ai_error, null)
+      assert.equal(result.ai_run_id !== null, true)
+
+      const savedPreferences = await readCaptureAiContextPreferences(paths)
+      assert.equal(savedPreferences.analysis_session_id, 'session_capture_ai_context_gc')
+      assert.equal(savedPreferences.analysis_contract_id, null)
+      assert.equal(savedPreferences.analysis_contract_symbol, 'GCX-MACRO')
+      assert.equal(savedPreferences.analysis_role, 'event')
+      assert.equal(savedPreferences.background_layer, 'macro')
     })
   })
 

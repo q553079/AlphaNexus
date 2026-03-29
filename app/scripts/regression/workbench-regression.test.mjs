@@ -694,4 +694,49 @@ test('AlphaNexus workbench regression guards', async(t) => {
       assert.equal(payloadAfterMove.content_blocks.find((block) => block.id === updated.id)?.move_history.length, 1)
     })
   })
+
+  await t.test('image note can attach to an existing screenshot event without creating a fake extra event', async() => {
+    await withTempDb('event-image-note', async({ paths, db, nextIso }) => {
+      insertPeriod(db, nextIso, { id: 'period_image_note' })
+      insertContract(db, nextIso, { id: 'contract_image_note', symbol: 'GC' })
+      insertSession(db, nextIso, {
+        id: 'session_image_note',
+        contract_id: 'contract_image_note',
+        period_id: 'period_image_note',
+        title: 'image note session',
+      })
+      insertScreenshot(db, nextIso, {
+        id: 'shot_image_note',
+        session_id: 'session_image_note',
+        event_id: 'event_image_note',
+        caption: '截图 · IG27Q',
+      })
+      insertEvent(db, nextIso, {
+        id: 'event_image_note',
+        session_id: 'session_image_note',
+        event_type: 'screenshot',
+        title: '截图',
+        summary: '原始截图事件',
+        screenshot_id: 'shot_image_note',
+      })
+
+      const block = await createWorkbenchNoteBlockForContext(paths, {
+        session_id: 'session_image_note',
+        trade_id: null,
+        event_id: 'event_image_note',
+        title: '事件图说明',
+        content_md: '这里是手动补充的事件图说明。',
+      })
+
+      assert.equal(block.event_id, 'event_image_note')
+      assert.equal(block.context_type, 'event')
+      assert.equal(block.context_id, 'event_image_note')
+
+      const payload = await getSessionWorkbench(paths, { session_id: 'session_image_note' })
+      const screenshotEvent = payload.events.find((event) => event.id === 'event_image_note')
+      assert.deepEqual(screenshotEvent?.content_block_ids, [block.id])
+      assert.equal(payload.events.filter((event) => event.event_type === 'observation').length, 0)
+      assert.equal(payload.content_blocks.find((item) => item.id === block.id)?.content_md, '这里是手动补充的事件图说明。')
+    })
+  })
 })

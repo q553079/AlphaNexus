@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { runMockAiAnalysis } from '../../src/main/ai/service.ts'
 import {
   buildMarketAnalysisPrompt,
+  buildPeriodReviewPrompt,
   buildSuggestionPromptContextSection,
 } from '../../src/main/ai/prompt-builders.ts'
 import {
@@ -12,6 +14,10 @@ import {
   readCapturePreferences,
   writeCapturePreferences,
 } from '../../src/main/capture/capture-preferences-storage.ts'
+import {
+  readCaptureAiContextPreferences,
+  writeCaptureAiContextPreferences,
+} from '../../src/main/capture/capture-ai-context-preferences-storage.ts'
 import { buildAiComparisonViewModel } from '../../src/renderer/app/features/session-workbench/modules/session-ai-compare.ts'
 import { applySelectionFormatting } from '../../src/renderer/app/features/session-workbench/modules/session-editor-formatting.ts'
 import {
@@ -19,6 +25,13 @@ import {
   computeVirtualWindowRange,
 } from '../../src/renderer/app/features/session-workbench/modules/session-virtual-window.ts'
 import {
+  insertAiRun,
+  insertAnalysisCard,
+  insertContract,
+  insertEvent,
+  insertPeriod,
+  insertScreenshot,
+  insertSession,
   withTempDb,
 } from './helpers.mjs'
 
@@ -65,6 +78,32 @@ test('P5 capture preferences stay local-first and round-trip through the JSON st
     assert.equal(saved.display_strategy, 'main-window-display')
 
     const reread = await readCapturePreferences(paths)
+    assert.deepEqual(reread, saved)
+  })
+})
+
+test('P5 capture AI context defaults stay local-first and remember the last explicit analysis contract', async() => {
+  await withTempDb('p5-capture-ai-context-preferences', async({ paths }) => {
+    const defaults = await readCaptureAiContextPreferences(paths)
+    assert.equal(defaults.schema_version, 1)
+    assert.equal(defaults.analysis_contract_symbol, '')
+    assert.equal(defaults.analysis_role, 'event')
+
+    const saved = await writeCaptureAiContextPreferences(paths, {
+      analysis_session_id: 'session_gc_macro',
+      analysis_contract_id: null,
+      analysis_contract_symbol: 'GCX-CUSTOM',
+      analysis_role: 'background',
+      background_layer: 'htf',
+    })
+
+    assert.equal(saved.analysis_session_id, 'session_gc_macro')
+    assert.equal(saved.analysis_contract_id, null)
+    assert.equal(saved.analysis_contract_symbol, 'GCX-CUSTOM')
+    assert.equal(saved.analysis_role, 'background')
+    assert.equal(saved.background_layer, 'htf')
+
+    const reread = await readCaptureAiContextPreferences(paths)
     assert.deepEqual(reread, saved)
   })
 })
@@ -162,6 +201,44 @@ test('P5 similar-case prompt context and multi-provider compare view stay explai
   })
   assert.match(marketPrompt, /2026-03-19 opening drive reclaim/)
 
+  const periodPrompt = buildPeriodReviewPrompt({
+    contract: { symbol: 'NQ' },
+    sessions: [{ id: 'session-a', title: 'Opening drive reclaim' }],
+    content_blocks: [{ title: 'My note', content_md: '等待确认后只做 opening drive reclaim。' }],
+    feedback_items: [{ title: '先等确认', summary: '先等确认再入场。' }],
+    setup_leaderboard: [{ label: 'opening-drive', sample_count: 3, win_rate_pct: 67, avg_r: 1.2, discipline_avg_pct: 80, ai_alignment_pct: 70 }],
+    trade_metrics: [
+      { trade_id: 'trade-best', session_title: 'Opening drive reclaim', result_label: 'win', pnl_r: 2, plan_adherence_score: 88, thesis_excerpt: '确认后入场' },
+      { trade_id: 'trade-worst', session_title: 'Failed chase', result_label: 'loss', pnl_r: -1, plan_adherence_score: 42, thesis_excerpt: '追单失败' },
+    ],
+    period_rollup: {
+      period: { label: '2026-W13', start_at: '2026-03-23T00:00:00.000Z', end_at: '2026-03-29T23:59:59.000Z' },
+      period_key: 'week:2026-W13',
+      stats: {
+        trade_count: 2,
+        resolved_trade_count: 2,
+        pending_trade_count: 0,
+        canceled_trade_count: 0,
+        total_pnl_r: 1,
+        avg_pnl_r: 0.5,
+        win_rate_pct: 50,
+        avg_holding_minutes: 26,
+        plan_adherence_avg_pct: 65,
+        ai_alignment_avg_pct: 70,
+      },
+      tag_summary: [{ label: '追单', category: 'mistake', source: 'system', count: 1 }],
+      best_trade_ids: ['trade-best'],
+      worst_trade_ids: ['trade-worst'],
+    },
+  }, {
+    approved_knowledge_hits: [{ title: 'Opening drive reclaim', summary: '确认后再入场。' }],
+  })
+  assert.match(periodPrompt, /Structured period facts/)
+  assert.match(periodPrompt, /week:2026-W13/)
+  assert.match(periodPrompt, /\[period_key=week:2026-W13\]/)
+  assert.match(periodPrompt, /Best 1: trade=trade-best/)
+  assert.match(periodPrompt, /Mistake tags/)
+
   const compareView = buildAiComparisonViewModel({
     ai_runs: [
       {
@@ -222,4 +299,104 @@ test('P5 similar-case prompt context and multi-provider compare view stay explai
   assert.ok(compareView.consensus_points.some((item) => item.includes('共同入场区：回踩 VWAP')))
   assert.ok(compareView.consensus_points.some((item) => item.includes('共同支撑：VWAP reclaim')))
   assert.ok(compareView.divergence_points.some((item) => item.includes('置信度跨度 23%')))
+})
+
+test('P5 market-analysis prompt preview keeps save target and explicit analysis contract separate', async() => {
+  await withTempDb('p5-ai-analysis-context', async({ paths, db, nextIso }) => {
+    insertPeriod(db, nextIso, { id: 'period_p5_ai_context_nq' })
+    insertPeriod(db, nextIso, { id: 'period_p5_ai_context_gc', label: 'GC week' })
+    insertContract(db, nextIso, { id: 'contract_p5_ai_context_nq', symbol: 'NQ' })
+    insertContract(db, nextIso, { id: 'contract_p5_ai_context_gc', symbol: 'GC' })
+    insertSession(db, nextIso, {
+      id: 'session_p5_ai_context_nq',
+      contract_id: 'contract_p5_ai_context_nq',
+      period_id: 'period_p5_ai_context_nq',
+      title: 'NQ execution session',
+      tags: ['execution'],
+    })
+    insertSession(db, nextIso, {
+      id: 'session_p5_ai_context_gc',
+      contract_id: 'contract_p5_ai_context_gc',
+      period_id: 'period_p5_ai_context_gc',
+      title: 'GC macro session',
+      tags: ['macro'],
+    })
+    insertSession(db, nextIso, {
+      id: 'session_p5_ai_context_gc_history',
+      contract_id: 'contract_p5_ai_context_gc',
+      period_id: 'period_p5_ai_context_gc',
+      title: 'GC macro history',
+      tags: ['macro'],
+    })
+    insertAiRun(db, nextIso, {
+      id: 'airun_p5_ai_context_seed',
+      session_id: 'session_p5_ai_context_nq',
+      prompt_kind: 'market-analysis',
+      prompt_preview: 'seed prompt',
+    })
+    insertAnalysisCard(db, nextIso, {
+      id: 'analysis_p5_ai_context_seed',
+      ai_run_id: 'airun_p5_ai_context_seed',
+      session_id: 'session_p5_ai_context_nq',
+      trade_id: null,
+      bias: 'bullish',
+      confidence_pct: 62,
+      summary_short: 'seed summary',
+      supporting_factors: ['seed'],
+    })
+    insertEvent(db, nextIso, {
+      id: 'event_p5_ai_context_primary',
+      session_id: 'session_p5_ai_context_nq',
+      event_type: 'screenshot',
+      title: 'NQ execution shot',
+      summary: 'execution shot',
+      screenshot_id: 'screenshot_p5_ai_context_primary',
+    })
+    insertScreenshot(db, nextIso, {
+      id: 'screenshot_p5_ai_context_primary',
+      session_id: 'session_p5_ai_context_nq',
+      event_id: 'event_p5_ai_context_primary',
+      caption: 'NQ execution frame',
+    })
+    insertEvent(db, nextIso, {
+      id: 'event_p5_ai_context_background',
+      session_id: 'session_p5_ai_context_gc',
+      event_type: 'screenshot',
+      title: 'GC macro background',
+      summary: 'macro background',
+      screenshot_id: 'screenshot_p5_ai_context_background',
+    })
+    insertScreenshot(db, nextIso, {
+      id: 'screenshot_p5_ai_context_background',
+      session_id: 'session_p5_ai_context_gc',
+      event_id: 'event_p5_ai_context_background',
+      caption: 'GC daily structure',
+      analysis_role: 'background',
+      analysis_session_id: 'session_p5_ai_context_gc',
+      background_layer: 'macro',
+      background_label: 'GC 日线大背景',
+      background_note_md: '优先看更长周期上升结构。',
+    })
+
+    const result = await runMockAiAnalysis(paths, {
+      session_id: 'session_p5_ai_context_nq',
+      screenshot_id: 'screenshot_p5_ai_context_primary',
+      provider: 'deepseek',
+      prompt_kind: 'market-analysis',
+      analysis_context: {
+        analysis_session_id: 'session_p5_ai_context_gc',
+        analysis_contract_symbol: 'GCX-CUSTOM',
+        background_screenshot_ids: ['screenshot_p5_ai_context_background'],
+        background_note_md: '先用 GC 日线结构做宏观背景。',
+      },
+    })
+
+    assert.match(result.prompt_preview, /Mount target contract: NQ/)
+    assert.match(result.prompt_preview, /Analysis contract: GCX-CUSTOM/)
+    assert.match(result.prompt_preview, /GC macro session/)
+    assert.match(result.prompt_preview, /BG1: id=screenshot_p5_ai_context_background/)
+    assert.match(result.prompt_preview, /GC 日线大背景/)
+    assert.match(result.prompt_preview, /先用 GC 日线结构做宏观背景/)
+    assert.doesNotMatch(result.prompt_preview, /Similar historical cases/)
+  })
 })

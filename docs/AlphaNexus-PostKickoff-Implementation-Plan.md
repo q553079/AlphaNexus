@@ -166,6 +166,30 @@
 - 线程 D：AI 真调用与结果入库
 - 线程 E：Markdown 导出打通
 
+### 4.5 Capture AI Context v1 兼容与迁移说明
+
+- Capture overlay 现在把“保存归属”和“AI 分析上下文”分开：
+  - `target_context` 只决定 screenshot / event / trade 挂载到哪条真实主线。
+  - `analysis_context` 只决定 AI 按哪条 Session、哪个显式合约品种、哪些背景图和哪段背景说明来分析。
+- `screenshots` 新增显式分析元数据：
+  - `analysis_role`
+  - `analysis_session_id`
+  - `background_layer`
+  - `background_label`
+  - `background_note_md`
+- 迁移策略为增量迁移：
+  - 历史截图默认回填为 `analysis_role = event`
+  - `analysis_session_id / background_layer / background_label` 保持 `NULL`
+  - `background_note_md` 回填为空字符串
+- 旧 Capture payload 保持兼容：
+  - 不传 `screenshot_background` 时，截图仍按普通事件保存
+  - 不传 `analysis_context` 时，AI 仍默认按保存目标所在 Session 分析
+- Capture overlay 的 AI 上下文默认值额外保存在本地 JSON：
+  - 文件：`data/capture-ai-context-preferences.json`
+  - 用途：记住上一次手选的 `analysis_session_id / analysis_contract_symbol / analysis_role / background_layer`
+  - 兼容策略：缺失文件时回退默认值，不阻塞截图主链
+- 本轮没有新增 event type，也没有把 AI 输入上下文搬进 renderer 本地状态作为唯一事实源；背景截图标签和当前截图用途都会真实写入本地库，AI 运行时使用的主 Session / 显式合约品种 / 背景截图 / 背景说明会进入 `prompt_preview`，因此可回查。
+
 ---
 
 ## 5. 阶段二：真实数据落地
@@ -473,6 +497,18 @@
 - 线程 C：Review 页面与图表
 - 线程 D：AI 周/月复盘 builder
 
+### 7.5 兼容与迁移说明
+
+- 本阶段允许以“可重建的 period domain”先落地 `day / week / month` rollup 对象，而不是先强制引入新的 SQL 表迁移。
+- 兼容策略：
+  - 新增的 `period_rollup`、`trade_metrics`、标签摘要与周期 AI 质量摘要都应从既有 `periods / sessions / trades / evaluations / ai_runs / analysis_cards` 计算生成。
+  - `PeriodReviewPayload` 的扩展必须采用加法字段，旧页面或旧调用方即使只消费原有 `evaluation_rollup / feedback / setup_leaderboard` 也不应被破坏。
+  - `session.period_id` 可以继续作为当前工作台的 week 锚点，但 day/month review 不应要求 Session 同时持有多个 period 外键；周期聚合应按 period 时间范围重建。
+- 旧数据处理：
+  - 历史 Period 没有 period-review AI 记录时，`latest_period_ai_review` 保持 `null`，不伪造复盘内容。
+  - 历史 Trade 若缺少 `evaluation.score`、AI 对齐样本或结构化标签，相关 period metric 字段保持 `NULL`/空数组，不静默回填默认值。
+  - 历史 week-only Session 应通过 period catalog backfill 自动补出 day/month period 行，而不是要求人工改写旧 Session 记录。
+
 ---
 
 ## 8. 阶段五：稳定性、体验与 AI 质量强化
@@ -526,6 +562,12 @@
   - 位置：本地 `dataDir`
   - 用途：保存 prompt template 的 runtime notes 覆盖项
   - 兼容策略：缺失文件时回退内置模板，不影响 AI 主调用
+- `ai_runs.status = failed`
+  - 用途：记录真实 provider 调用或结构化解析失败的本地失败样本，支撑结构化成功率、失败原因和降级回溯。
+  - 兼容策略：复用现有 `ai_runs.status` 枚举值和 `raw_response_text / structured_response_json` 字段，无需新增 SQL 列。
+- `period-review` structured output
+  - 用途：统一保留 `summary_short / strengths / mistakes / recurring_patterns / action_items / deep_analysis_md`，避免周/月 AI 报告退化为自由文案。
+  - 兼容策略：旧的 `period-review` 记录如果结构不完整，读取时按 `structured = null` 处理，不阻断周期页和历史数据回放。
 - 阶段五新增 IPC 可以是加法扩展，例如：
   - `capture:list-displays`
   - `capture:get-preferences`

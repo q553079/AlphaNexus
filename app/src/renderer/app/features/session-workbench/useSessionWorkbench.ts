@@ -6,6 +6,7 @@ import type { ComposerSuggestion } from '@app/features/composer/types'
 import type { GroundingHitView } from '@app/features/grounding'
 import type { AnnotationSuggestionView, AnchorReviewSuggestionView, SimilarCaseView } from '@app/features/suggestions'
 import type { AnalysisCardRecord } from '@shared/contracts/analysis'
+import type { AiRunExecutionResult, AiAnalysisAttachment } from '@shared/ai/contracts'
 import type { AnnotationRecord, ContentBlockRecord, ScreenshotRecord } from '@shared/contracts/content'
 import type { EventRecord } from '@shared/contracts/event'
 import type { EvaluationRecord, TradeRecord } from '@shared/contracts/trade'
@@ -81,6 +82,7 @@ export type SessionWorkbenchController = {
     price: number
   }) => Promise<void>
   handleCreateNoteBlock: (input?: {
+    event_id?: string
     title?: string
     content_md?: string
   }) => Promise<ContentBlockRecord | null>
@@ -105,6 +107,7 @@ export type SessionWorkbenchController = {
   handleImportScreenshot: () => Promise<void>
   handleOpenSnipCapture: () => Promise<void>
   handlePasteClipboardImage: () => Promise<void>
+  handlePasteClipboardImageAndRunAnalysis: () => Promise<void>
   handleReorderNoteBlocks: (input: {
     session_id: string
     context_type: 'session' | 'trade'
@@ -116,9 +119,16 @@ export type SessionWorkbenchController = {
   handleRestoreScreenshot: (screenshotId: string) => Promise<void>
   handleRestoreBlock: (block: ContentBlockRecord) => Promise<void>
   handleRunAnalysis: () => Promise<void>
+  handleRunAnalysisForScreenshot: (screenshotId: string) => Promise<AiRunExecutionResult | null>
+  handleRunAnalysisFollowUpForScreenshot: (input: {
+    attachments?: AiAnalysisAttachment[]
+    backgroundNoteMd: string
+    screenshotId: string
+  }) => Promise<AiRunExecutionResult | null>
   handleRunAnalysisAcrossProviders: () => Promise<void>
   handleSaveAnnotations: () => Promise<void>
   handleSaveRealtimeView: () => Promise<void>
+  handleSaveRealtimeViewAndRunAnalysis: () => Promise<void>
   handleUpdateAnnotation: (input: {
     annotation_id: string
     label: string
@@ -373,15 +383,19 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleImportScreenshot,
     handleOpenSnipCapture,
     handlePasteClipboardImage,
+    handlePasteClipboardImageAndRunAnalysis,
     handleReorderNoteBlocks,
     handleRestoreAiRecord,
     handleRestoreAnnotation,
     handleRestoreBlock,
     handleRestoreScreenshot,
     handleRunAnalysis,
+    handleRunAnalysisForScreenshot,
+    handleRunAnalysisFollowUpForScreenshot,
     handleRunAnalysisAcrossProviders,
     handleSaveAnnotations,
     handleSaveRealtimeView,
+    handleSaveRealtimeViewAndRunAnalysis,
     handleUpdateAnnotation,
     handleSetAnchorStatus,
     handleUpdateNoteBlock,
@@ -475,15 +489,19 @@ export const useSessionWorkbench = (sessionId?: string): SessionWorkbenchControl
     handleImportScreenshot,
     handleOpenSnipCapture,
     handlePasteClipboardImage,
+    handlePasteClipboardImageAndRunAnalysis,
     handleReorderNoteBlocks,
     handleRestoreAiRecord,
     handleRestoreAnnotation,
     handleRestoreScreenshot,
     handleRestoreBlock,
     handleRunAnalysis,
+    handleRunAnalysisForScreenshot,
+    handleRunAnalysisFollowUpForScreenshot,
     handleRunAnalysisAcrossProviders,
     handleSaveAnnotations,
     handleSaveRealtimeView,
+    handleSaveRealtimeViewAndRunAnalysis,
     handleUpdateAnnotation,
     handleUpdateNoteBlock,
     handleSetCurrentContext: handleSetCurrentTarget,

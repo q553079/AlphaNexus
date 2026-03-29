@@ -475,6 +475,26 @@ const migrations: Migration[] = [
       WHERE title IS NULL OR title = '' OR note_md IS NULL OR add_to_memory IS NULL;
     `,
   },
+  {
+    id: 10,
+    name: 'add-screenshot-analysis-context-columns',
+    sql: `
+      ALTER TABLE screenshots ADD COLUMN analysis_role TEXT NOT NULL DEFAULT 'event';
+      ALTER TABLE screenshots ADD COLUMN analysis_session_id TEXT;
+      ALTER TABLE screenshots ADD COLUMN background_layer TEXT;
+      ALTER TABLE screenshots ADD COLUMN background_label TEXT;
+      ALTER TABLE screenshots ADD COLUMN background_note_md TEXT NOT NULL DEFAULT '';
+
+      UPDATE screenshots
+      SET
+        analysis_role = COALESCE(analysis_role, 'event'),
+        background_note_md = COALESCE(background_note_md, '')
+      WHERE analysis_role IS NULL OR background_note_md IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_screenshots_analysis_context
+      ON screenshots(analysis_session_id, analysis_role, created_at DESC);
+    `,
+  },
 ]
 
 export const applyMigrations = (db: Database.Database) => {

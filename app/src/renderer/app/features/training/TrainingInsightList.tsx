@@ -1,3 +1,4 @@
+import { translateFeedbackPriority } from '@app/ui/display-text'
 import type { TrainingInsight } from '@shared/contracts/evaluation'
 
 type TrainingInsightListProps = {
@@ -16,7 +17,7 @@ export const TrainingInsightList = ({ insights }: TrainingInsightListProps) => {
           <strong>{insight.title}</strong>
           <p>{insight.summary}</p>
           <div className="action-row">
-            <span className="status-pill">{insight.priority}</span>
+            <span className="status-pill">{translateFeedbackPriority(insight.priority)}</span>
             {insight.evidence.slice(0, 3).map((evidence) => (
               <span className="badge" key={evidence}>{evidence}</span>
             ))}

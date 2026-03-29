@@ -1,5 +1,9 @@
 import type { AiAdapter, AiAdapterRunInput, AiAdapterRunResult } from '@main/ai/adapters/base'
-import { AiAnalysisDraftSchema, TradeReviewDraftSchema } from '@shared/ai/contracts'
+import {
+  AiAnalysisDraftSchema,
+  PeriodReviewDraftSchema,
+  TradeReviewDraftSchema,
+} from '@shared/ai/contracts'
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_MODEL = 'deepseek-reasoner'
@@ -41,6 +45,21 @@ const TRADE_REVIEW_JSON_CONTRACT = [
   'If evidence is incomplete, say so explicitly in Simplified Chinese instead of omitting fields.',
 ].join('\n')
 
+const PERIOD_REVIEW_JSON_CONTRACT = [
+  'Return a JSON object with exactly these keys:',
+  '{',
+  '  "summary_short": string,',
+  '  "strengths": string[],',
+  '  "mistakes": string[],',
+  '  "recurring_patterns": string[],',
+  '  "action_items": string[],',
+  '  "deep_analysis_md": string',
+  '}',
+  'Write all user-facing strings in Simplified Chinese.',
+  'Every point must be grounded in the supplied structured period facts, setup leaderboard, tags, and sample trades.',
+  'Do not invent statistics, hidden trades, or extra samples.',
+].join('\n')
+
 type DeepSeekResponse = {
   error?: {
     message?: string
@@ -74,9 +93,13 @@ const extractJsonPayload = (raw: string) => {
 
 const parseStructuredOutput = (input: AiAdapterRunInput, rawOutput: string) => {
   const payload = extractJsonPayload(rawOutput)
-  return input.input.prompt_kind === 'trade-review'
-    ? TradeReviewDraftSchema.parse(payload)
-    : AiAnalysisDraftSchema.parse(payload)
+  if (input.input.prompt_kind === 'trade-review') {
+    return TradeReviewDraftSchema.parse(payload)
+  }
+  if (input.input.prompt_kind === 'period-review') {
+    return PeriodReviewDraftSchema.parse(payload)
+  }
+  return AiAnalysisDraftSchema.parse(payload)
 }
 
 const buildSystemPrompt = (input: AiAdapterRunInput) =>
@@ -89,17 +112,17 @@ const buildSystemPrompt = (input: AiAdapterRunInput) =>
 const runDeepSeekAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRunResult> => {
   const {
     config,
-    env,
     promptPreview,
+    providerSecret,
   } = input
-  if (!env.deepseekApiKey) {
-    throw new Error('本地环境中缺少 DEEPSEEK_API_KEY。')
+  if (!providerSecret.api_key) {
+    throw new Error('DeepSeek 尚未配置可用的本地 API Key。')
   }
 
   const response = await fetch(`${normalizeBaseUrl(config.base_url)}/chat/completions`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.deepseekApiKey}`,
+      'Authorization': `Bearer ${providerSecret.api_key}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -109,7 +132,11 @@ const runDeepSeekAnalysis = async(input: AiAdapterRunInput): Promise<AiAdapterRu
         { role: 'system', content: buildSystemPrompt(input) },
         {
           role: 'user',
-          content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review' ? TRADE_REVIEW_JSON_CONTRACT : JSON_CONTRACT}`,
+          content: `${promptPreview}\n\n${input.input.prompt_kind === 'trade-review'
+            ? TRADE_REVIEW_JSON_CONTRACT
+            : input.input.prompt_kind === 'period-review'
+              ? PERIOD_REVIEW_JSON_CONTRACT
+              : JSON_CONTRACT}`,
         },
       ],
       stream: false,
@@ -147,7 +174,7 @@ export const deepseekAdapter: AiAdapter = {
     configured_via: env.deepseekApiKey ? 'env' : 'none',
     secret_storage: env.deepseekApiKey ? 'env' : 'none',
     supports_base_url_override: true,
-    supports_local_api_key: false,
+    supports_local_api_key: true,
   }),
   runMock: async() => {
     throw new Error('DeepSeek 的 mock 运行由聚合 AI 服务统一处理。')

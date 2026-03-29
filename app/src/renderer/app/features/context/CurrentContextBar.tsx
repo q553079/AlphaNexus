@@ -1,17 +1,10 @@
 import type { SessionWorkbenchPayload } from '@shared/contracts/workbench'
 import {
-  translateCaptureKind,
+  translateCurrentTargetLabel,
+  translateTargetOptionSubtitle,
   translateTradeSide,
   translateTradeStatus,
 } from '@app/ui/display-text'
-
-const sourceViewLabels: Record<SessionWorkbenchPayload['current_context']['source_view'], string> = {
-  launcher: 'Launcher',
-  'session-workbench': 'Session Workbench',
-  'trade-detail': 'Trade Detail',
-  'period-review': 'Period Review',
-  'capture-overlay': 'Capture Overlay',
-}
 
 type CurrentContextBarProps = {
   payload: SessionWorkbenchPayload
@@ -31,19 +24,12 @@ export const CurrentContextBar = ({ payload }: CurrentContextBarProps) => {
         合约 {payload.contract.symbol}
       </span>
       <span className="session-workbench__context-pill" role="listitem">
-        周期 {payload.period.label}
+        周期 {translateTargetOptionSubtitle(payload.period.label)}
       </span>
       <span className="session-workbench__context-pill" role="listitem">
-        Session {payload.session.title}
-      </span>
-      <span className="session-workbench__context-pill" role="listitem">
-        目标 {targetTrade ? `${targetTrade.symbol} ${translateTradeSide(targetTrade.side)} · ${translateTradeStatus(targetTrade.status)}` : currentTarget?.label ?? 'Session'}
-      </span>
-      <span className="session-workbench__context-pill" role="listitem">
-        Capture {translateCaptureKind(payload.current_context.capture_kind)}
-      </span>
-      <span className="session-workbench__context-pill" role="listitem">
-        视图 {sourceViewLabels[payload.current_context.source_view]}
+        当前挂载 {targetTrade
+          ? `${targetTrade.symbol} ${translateTradeSide(targetTrade.side)} · ${translateTradeStatus(targetTrade.status)}`
+          : translateCurrentTargetLabel(currentTarget)}
       </span>
     </div>
   )

@@ -8,10 +8,99 @@ import {
 import { CaptureEditorSurface } from '@app/features/capture/CaptureEditorSurface'
 import { CaptureOverlayComposer } from '@app/features/capture/CaptureOverlayComposer'
 import type { CaptureDisplay, CapturePreferences, CaptureSelection, PendingSnipCapture } from '@shared/capture/contracts'
-import type { CurrentTargetOption, CurrentTargetOptionsPayload } from '@shared/contracts/workbench'
+import type { ScreenshotAnalysisRole, ScreenshotBackgroundLayer } from '@shared/contracts/content'
+import type { ContractRecord } from '@shared/contracts/session'
+import type { CurrentTargetOption, CurrentTargetOptionsPayload, SessionWorkbenchPayload } from '@shared/contracts/workbench'
 
 const isMac = navigator.platform.toLowerCase().includes('mac')
-const modifierLabel = isMac ? 'Cmd' : 'Ctrl'
+const modifierLabel = isMac ? '命令键' : '控制键'
+
+const formatShortcutLabel = (value: string) => value
+  .replaceAll('CommandOrControl', '命令键/控制键')
+  .replaceAll('Ctrl', '控制键')
+  .replaceAll('Cmd', '命令键')
+  .replaceAll('Shift', '上档键')
+  .replaceAll('Enter', '回车键')
+  .replaceAll('Esc', '退出键')
+
+const normalizeContractSymbol = (value: string | null | undefined) => value?.trim().toUpperCase() ?? ''
+
+const buildAnalysisSessionOptions = (payload: CurrentTargetOptionsPayload | null) => {
+  if (!payload) {
+    return []
+  }
+
+  const options = new Map<string, CurrentTargetOption>()
+  for (const option of payload.options) {
+    if (option.target_kind !== 'session') {
+      continue
+    }
+    if (!options.has(option.session_id)) {
+      options.set(option.session_id, option)
+    }
+  }
+
+  return Array.from(options.values())
+}
+
+const buildBackgroundOptions = (
+  payload: SessionWorkbenchPayload | null,
+) => (payload?.screenshots ?? [])
+  .filter((screenshot) => screenshot.analysis_role === 'background')
+  .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+  .map((screenshot) => ({
+    id: screenshot.id,
+    label: screenshot.background_label ?? screenshot.caption ?? screenshot.id,
+    subtitle: screenshot.caption ?? screenshot.created_at,
+    layer: screenshot.background_layer ?? 'custom',
+  }))
+
+type CaptureContractOption = {
+  id: string | null
+  symbol: string
+  subtitle: string
+}
+
+const buildAnalysisContractOptions = (
+  contracts: ContractRecord[],
+  analysisSessionPayload: SessionWorkbenchPayload | null,
+  pending: PendingSnipCapture | null,
+) => {
+  const options = new Map<string, CaptureContractOption>()
+  const pushOption = (input: CaptureContractOption) => {
+    const key = normalizeContractSymbol(input.symbol)
+    if (!key || options.has(key)) {
+      return
+    }
+    options.set(key, input)
+  }
+
+  if (analysisSessionPayload) {
+    pushOption({
+      id: analysisSessionPayload.contract.id,
+      symbol: analysisSessionPayload.contract.symbol,
+      subtitle: `${analysisSessionPayload.contract.name} · AI 主工作过程`,
+    })
+  }
+
+  for (const contract of contracts) {
+    pushOption({
+      id: contract.id,
+      symbol: contract.symbol,
+      subtitle: contract.name,
+    })
+  }
+
+  if (pending?.contract_symbol) {
+    pushOption({
+      id: pending.contract_id ?? null,
+      symbol: pending.contract_symbol,
+      subtitle: '当前保存目标对应合约',
+    })
+  }
+
+  return Array.from(options.values())
+}
 
 const resolveTargetOption = (
   payload: CurrentTargetOptionsPayload,
@@ -42,6 +131,7 @@ export const CaptureOverlayPage = () => {
   const [pending, setPending] = useState<PendingSnipCapture | null>(null)
   const [displays, setDisplays] = useState<CaptureDisplay[]>([])
   const [preferences, setPreferences] = useState<CapturePreferences | null>(null)
+  const [availableContracts, setAvailableContracts] = useState<ContractRecord[]>([])
   const [targetPayload, setTargetPayload] = useState<CurrentTargetOptionsPayload | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [selection, setSelection] = useState<CaptureSelection | null>(null)
@@ -49,8 +139,19 @@ export const CaptureOverlayPage = () => {
   const [activeAnnotationIndex, setActiveAnnotationIndex] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [syncingTarget, setSyncingTarget] = useState(false)
+  const [analysisSessionBusy, setAnalysisSessionBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [noteText, setNoteText] = useState('')
+  const [analysisSessionId, setAnalysisSessionId] = useState<string | null>(null)
+  const [analysisSessionTouched, setAnalysisSessionTouched] = useState(false)
+  const [analysisSessionPayload, setAnalysisSessionPayload] = useState<SessionWorkbenchPayload | null>(null)
+  const [analysisContractInput, setAnalysisContractInput] = useState('')
+  const [analysisContractTouched, setAnalysisContractTouched] = useState(false)
+  const [selectedBackgroundIds, setSelectedBackgroundIds] = useState<string[]>([])
+  const [analysisRole, setAnalysisRole] = useState<ScreenshotAnalysisRole>('event')
+  const [backgroundLayer, setBackgroundLayer] = useState<ScreenshotBackgroundLayer>('macro')
+  const [backgroundLabel, setBackgroundLabel] = useState('')
+  const [backgroundNote, setBackgroundNote] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -59,8 +160,9 @@ export const CaptureOverlayPage = () => {
       alphaNexusApi.capture.getPendingSnip(),
       alphaNexusApi.capture.listDisplays(),
       alphaNexusApi.capture.getPreferences(),
+      alphaNexusApi.launcher.getHome(),
     ])
-      .then(async([result, nextDisplays, nextPreferences]) => {
+      .then(async([result, nextDisplays, nextPreferences, homePayload]) => {
         if (cancelled) {
           return
         }
@@ -68,6 +170,7 @@ export const CaptureOverlayPage = () => {
         setPending(result)
         setDisplays(nextDisplays)
         setPreferences(nextPreferences)
+        setAvailableContracts(homePayload.contracts)
         setSelection(null)
         setAnnotations([])
         setActiveAnnotationIndex(null)
@@ -88,6 +191,18 @@ export const CaptureOverlayPage = () => {
         setTargetPayload(payload)
         const nextTarget = resolveTargetOption(payload, result)
         setSelectedTargetId(nextTarget?.id ?? null)
+        const analysisSessionOptions = buildAnalysisSessionOptions(payload)
+        const rememberedAnalysisSessionId = result.analysis_context_defaults.analysis_session_id
+        const nextAnalysisSessionId = rememberedAnalysisSessionId
+          && analysisSessionOptions.some((option) => option.session_id === rememberedAnalysisSessionId)
+          ? rememberedAnalysisSessionId
+          : nextTarget?.session_id ?? result.session_id
+        setAnalysisSessionId(nextAnalysisSessionId)
+        setAnalysisSessionTouched(false)
+        setAnalysisRole(result.analysis_context_defaults.analysis_role)
+        setBackgroundLayer(result.analysis_context_defaults.background_layer)
+        setAnalysisContractInput(result.analysis_context_defaults.analysis_contract_symbol.trim())
+        setAnalysisContractTouched(false)
       })
       .catch((error) => {
         if (!cancelled) {
@@ -105,6 +220,25 @@ export const CaptureOverlayPage = () => {
       ?? (pending && targetPayload ? resolveTargetOption(targetPayload, pending, selectedTargetId) : null),
     [pending, selectedTargetId, targetPayload],
   )
+  const analysisSessionOptions = useMemo(
+    () => buildAnalysisSessionOptions(targetPayload),
+    [targetPayload],
+  )
+  const backgroundOptions = useMemo(
+    () => buildBackgroundOptions(analysisSessionPayload),
+    [analysisSessionPayload],
+  )
+  const analysisContractOptions = useMemo(
+    () => buildAnalysisContractOptions(availableContracts, analysisSessionPayload, pending),
+    [analysisSessionPayload, availableContracts, pending],
+  )
+  const matchedAnalysisContract = useMemo(() => {
+    const input = normalizeContractSymbol(analysisContractInput)
+    if (!input) {
+      return null
+    }
+    return analysisContractOptions.find((option) => normalizeContractSymbol(option.symbol) === input) ?? null
+  }, [analysisContractInput, analysisContractOptions])
 
   const selectionMetrics = useMemo(() => {
     if (!pending || !selection) {
@@ -118,6 +252,89 @@ export const CaptureOverlayPage = () => {
   }, [pending, selection])
 
   const uiBusy = busy || syncingTarget
+
+  useEffect(() => {
+    if (analysisSessionTouched) {
+      return
+    }
+
+    const rememberedAnalysisSessionId = pending?.analysis_context_defaults.analysis_session_id ?? null
+    const defaultSessionId = rememberedAnalysisSessionId
+      && analysisSessionOptions.some((option) => option.session_id === rememberedAnalysisSessionId)
+      ? rememberedAnalysisSessionId
+      : selectedTargetOption?.session_id ?? pending?.session_id ?? null
+    setAnalysisSessionId(defaultSessionId)
+  }, [
+    analysisSessionOptions,
+    analysisSessionTouched,
+    pending?.analysis_context_defaults.analysis_session_id,
+    pending?.session_id,
+    selectedTargetOption?.session_id,
+  ])
+
+  useEffect(() => {
+    if (analysisContractTouched) {
+      return
+    }
+
+    const rememberedContractId = pending?.analysis_context_defaults.analysis_contract_id ?? null
+    const rememberedContractSymbol = pending?.analysis_context_defaults.analysis_contract_symbol?.trim() ?? ''
+    const contractFromId = rememberedContractId
+      ? analysisContractOptions.find((option) => option.id === rememberedContractId)?.symbol ?? ''
+      : ''
+    const nextContractInput = contractFromId
+      || rememberedContractSymbol
+      || analysisSessionPayload?.contract.symbol
+      || pending?.contract_symbol
+      || ''
+
+    setAnalysisContractInput((current) => current === nextContractInput ? current : nextContractInput)
+  }, [
+    analysisContractOptions,
+    analysisContractTouched,
+    analysisSessionPayload?.contract.symbol,
+    pending?.analysis_context_defaults.analysis_contract_id,
+    pending?.analysis_context_defaults.analysis_contract_symbol,
+    pending?.contract_symbol,
+  ])
+
+  useEffect(() => {
+    if (!analysisSessionId) {
+      setAnalysisSessionPayload(null)
+      setSelectedBackgroundIds([])
+      return
+    }
+
+    let cancelled = false
+    setAnalysisSessionBusy(true)
+
+    void alphaNexusApi.workbench.getSession({ session_id: analysisSessionId })
+      .then((payload) => {
+        if (cancelled) {
+          return
+        }
+
+        setAnalysisSessionPayload(payload)
+        setSelectedBackgroundIds((current) =>
+          current.filter((screenshotId) => payload.screenshots.some((shot) => shot.id === screenshotId && shot.analysis_role === 'background')))
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAnalysisSessionPayload(null)
+          setSelectedBackgroundIds([])
+          setMessage(error instanceof Error ? `加载 AI 上下文失败：${error.message}` : '加载 AI 上下文失败。')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAnalysisSessionBusy(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [analysisSessionId])
 
   const handleCancel = async() => {
     try {
@@ -187,6 +404,23 @@ export const CaptureOverlayPage = () => {
       note_text: noteText.trim() || undefined,
       annotated_image_data_url,
       annotation_document_json,
+      screenshot_background: {
+        analysis_role: analysisRole,
+        analysis_session_id: analysisRole === 'background'
+          ? (analysisSessionId ?? selectedTargetOption?.session_id ?? pending.session_id)
+          : null,
+        background_layer: analysisRole === 'background' ? backgroundLayer : null,
+        background_label: analysisRole === 'background' ? (backgroundLabel.trim() || null) : null,
+        background_note_md: analysisRole === 'background' ? backgroundNote.trim() : '',
+      },
+      analysis_context: {
+        analysis_session_id: analysisSessionId ?? selectedTargetOption?.session_id ?? pending.session_id,
+        analysis_contract_id: matchedAnalysisContract?.id ?? undefined,
+        analysis_contract_symbol: analysisContractInput.trim() || undefined,
+        background_screenshot_ids: selectedBackgroundIds,
+        background_note_md: backgroundNote.trim() || undefined,
+        attachments: [],
+      },
       run_ai: input.run_ai,
       kind: input.kind,
     }
@@ -228,7 +462,7 @@ export const CaptureOverlayPage = () => {
     }
 
     if (option.target_kind === 'period') {
-      setMessage('当前截图 overlay 仅支持保存到 Session 或 Trade 目标。')
+      setMessage('当前截图浮层仅支持保存到工作过程或交易目标。')
       return
     }
 
@@ -333,9 +567,9 @@ export const CaptureOverlayPage = () => {
       <header className="capture-overlay__toolbar">
         <div>
           <p className="eyebrow">快捷截图</p>
-          <h1>Capture Overlay</h1>
+          <h1>截图浮层</h1>
           <p className="capture-overlay__summary">
-            热键截图后，在同一层里完成框选、标注、观点输入和 target 选择。保存路径会先完成本地 screenshot、event、note、annotation 持久化，再按需触发 AI。
+            热键截图后，在同一层里完成框选、标注、观点输入和目标选择。保存路径会先完成本地截图、事件、笔记和标注持久化，再按需触发 AI。
           </p>
         </div>
       </header>
@@ -343,10 +577,11 @@ export const CaptureOverlayPage = () => {
       {message ? <div className="status-inline capture-overlay__status">{message}</div> : null}
 
       <div className="capture-overlay__meta">
-        <span className="status-pill">Session：{selectedTargetOption?.session_title ?? pending?.session_title ?? pending?.session_id ?? '待定'}</span>
-        <span className="status-pill">Target：{selectedTargetOption?.label ?? pending?.target_label ?? '待定'}</span>
+        <span className="status-pill">工作过程：{selectedTargetOption?.session_title ?? pending?.session_title ?? pending?.session_id ?? '待定'}</span>
+        <span className="status-pill">保存目标：{selectedTargetOption?.label ?? pending?.target_label ?? '待定'}</span>
+        <span className="status-pill">AI 主工作过程：{analysisSessionPayload?.session.title ?? analysisSessionOptions.find((option) => option.session_id === analysisSessionId)?.session_title ?? analysisSessionId ?? '待定'}</span>
         <span className="status-pill">屏幕：{pending?.display_label ?? '待定'}</span>
-        <span className="status-pill">启动快捷键：{preferences?.snip_accelerator ?? `${modifierLabel}+Shift+4`}</span>
+        <span className="status-pill">启动快捷键：{formatShortcutLabel(preferences?.snip_accelerator ?? `${modifierLabel}+上档键+4`)}</span>
         <span className="status-pill">基础保存不依赖 AI</span>
         <span className="status-pill">复制后不关闭截图界面</span>
       </div>
@@ -374,7 +609,7 @@ export const CaptureOverlayPage = () => {
               >
                 {displays.map((display) => (
                   <option key={display.id} value={display.id}>
-                    {display.label}{display.is_primary ? ' · Primary' : ''}
+                    {display.label}{display.is_primary ? ' · 主屏幕' : ''}
                   </option>
                 ))}
               </select>
@@ -403,10 +638,44 @@ export const CaptureOverlayPage = () => {
 
         <CaptureOverlayComposer
           activeAnnotationIndex={activeAnnotationIndex}
+          analysisRole={analysisRole}
+          analysisContractInput={analysisContractInput}
+          analysisContractOptions={analysisContractOptions}
+          analysisSessionBusy={analysisSessionBusy}
+          analysisSessionId={analysisSessionId}
+          analysisSessionOptions={analysisSessionOptions}
+          backgroundLabel={backgroundLabel}
+          backgroundLayer={backgroundLayer}
+          backgroundNote={backgroundNote}
+          backgroundOptions={backgroundOptions}
           annotations={annotations}
           busy={uiBusy}
           modifierLabel={modifierLabel}
           noteText={noteText}
+          onAnalysisRoleChange={setAnalysisRole}
+          onAnalysisContractInputChange={(value) => {
+            setAnalysisContractTouched(true)
+            setAnalysisContractInput(value)
+          }}
+          onAnalysisContractSuggestionSelect={(option) => {
+            setAnalysisContractTouched(true)
+            setAnalysisContractInput(option.symbol)
+          }}
+          onAnalysisSessionChange={(sessionId) => {
+            setAnalysisSessionTouched(true)
+            setAnalysisSessionId(sessionId)
+          }}
+          onBackgroundLabelChange={setBackgroundLabel}
+          onBackgroundLayerChange={setBackgroundLayer}
+          onBackgroundNoteChange={setBackgroundNote}
+          onBackgroundToggle={(screenshotId) => {
+            setSelectedBackgroundIds((current) =>
+              current.includes(screenshotId)
+                ? current.filter((id) => id !== screenshotId)
+                : current.length >= 8
+                  ? current
+                  : [...current, screenshotId])
+          }}
           onActiveAnnotationIndexChange={setActiveAnnotationIndex}
           onAnnotationChange={handleAnnotationChange}
           onCancel={() => void handleCancel()}
@@ -420,6 +689,7 @@ export const CaptureOverlayPage = () => {
           onTargetSelect={(option) => void handleTargetSelect(option)}
           pending={pending}
           selectedTargetOption={selectedTargetOption}
+          selectedBackgroundIds={selectedBackgroundIds}
           selectionMetrics={selectionMetrics}
           targetPayload={targetPayload}
         />

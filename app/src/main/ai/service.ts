@@ -1,12 +1,19 @@
 import type { AppEnvironment } from '@main/app-shell/env'
 import type { LocalFirstPaths } from '@main/app-shell/paths'
+import { getDatabase } from '@main/db/connection'
 import {
   persistLocalProviderSecret,
   readPersistedProviderConfigs,
   resolveLocalProviderSecret,
   writePersistedProviderConfigs,
 } from '@main/ai/provider-config-storage'
-import { getSessionWorkbench, getTradeDetail, recordAiAnalysis } from '@main/domain/workbench-service'
+import {
+  getPeriodReview,
+  getSessionWorkbench,
+  getTradeDetail,
+  recordAiAnalysis,
+  recordAiAnalysisFailure,
+} from '@main/domain/workbench-service'
 import {
   buildActiveAnchorRuntimeSummary,
   getApprovedKnowledgeRuntime,
@@ -32,10 +39,11 @@ import {
   SaveAiProviderConfigInputSchema,
   type AiAnalysisDraft,
   type AiProviderConfig,
+  type PeriodReviewDraft,
   type TradeReviewDraft,
 } from '@shared/ai/contracts'
 import type { ScreenshotRecord } from '@shared/contracts/content'
-import type { SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
+import type { PeriodReviewPayload, SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
 
 const resolveExplicitContextTrade = (payload: SessionWorkbenchPayload) =>
   payload.current_context.trade_id
@@ -77,7 +85,7 @@ const resolveScopedTrade = (
 const providerCapabilities: Record<AiProviderConfig['provider'], Pick<AiProviderConfig, 'supports_base_url_override' | 'supports_local_api_key'>> = {
   deepseek: {
     supports_base_url_override: true,
-    supports_local_api_key: false,
+    supports_local_api_key: true,
   },
   openai: {
     supports_base_url_override: false,
@@ -216,9 +224,14 @@ const biasLabels: Record<AiAnalysisDraft['bias'], string> = {
 }
 
 const isTradeReviewDraft = (
-  analysis: AiAnalysisDraft | TradeReviewDraft,
+  analysis: AiAnalysisDraft | TradeReviewDraft | PeriodReviewDraft,
 ): analysis is TradeReviewDraft =>
   'what_went_well' in analysis
+
+const isPeriodReviewDraft = (
+  analysis: AiAnalysisDraft | TradeReviewDraft | PeriodReviewDraft,
+): analysis is PeriodReviewDraft =>
+  'recurring_patterns' in analysis
 
 const summarizeInput = (value: string) => {
   const compact = value.replace(/\s+/g, ' ').trim()
@@ -227,6 +240,111 @@ const summarizeInput = (value: string) => {
   }
 
   return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact
+}
+
+const compactText = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+const normalizeContractSymbol = (value: string | null | undefined) => value?.trim() ?? ''
+
+type KnownContractRef = {
+  id: string
+  symbol: string
+}
+
+type ResolvedAnalysisContract = {
+  id: string | null
+  symbol: string
+  usesAnalysisSessionContract: boolean
+}
+
+const loadKnownContractById = async(
+  paths: LocalFirstPaths,
+  contractId?: string | null,
+): Promise<KnownContractRef | null> => {
+  if (!contractId?.trim()) {
+    return null
+  }
+
+  const db = await getDatabase(paths)
+  const row = db.prepare(`
+    SELECT id, symbol
+    FROM contracts
+    WHERE id = ?
+    LIMIT 1
+  `).get(contractId.trim()) as Record<string, unknown> | undefined
+
+  if (!row || typeof row.id !== 'string' || typeof row.symbol !== 'string') {
+    return null
+  }
+
+  return {
+    id: row.id,
+    symbol: row.symbol.trim(),
+  }
+}
+
+const loadKnownContractBySymbol = async(
+  paths: LocalFirstPaths,
+  contractSymbol?: string | null,
+): Promise<KnownContractRef | null> => {
+  const normalized = normalizeContractSymbol(contractSymbol)
+  if (!normalized) {
+    return null
+  }
+
+  const db = await getDatabase(paths)
+  const row = db.prepare(`
+    SELECT id, symbol
+    FROM contracts
+    WHERE lower(symbol) = lower(?)
+    LIMIT 1
+  `).get(normalized) as Record<string, unknown> | undefined
+
+  if (!row || typeof row.id !== 'string' || typeof row.symbol !== 'string') {
+    return null
+  }
+
+  return {
+    id: row.id,
+    symbol: row.symbol.trim(),
+  }
+}
+
+const resolveAnalysisContract = async(
+  paths: LocalFirstPaths,
+  analysisPayload: SessionWorkbenchPayload,
+  input: {
+    analysis_context?: {
+      analysis_contract_id?: string
+      analysis_contract_symbol?: string
+    }
+  },
+): Promise<ResolvedAnalysisContract> => {
+  const explicitSymbol = normalizeContractSymbol(input.analysis_context?.analysis_contract_symbol)
+  if (explicitSymbol) {
+    const matchedContract = await loadKnownContractBySymbol(paths, explicitSymbol)
+    return {
+      id: matchedContract?.id ?? null,
+      symbol: explicitSymbol,
+      usesAnalysisSessionContract: matchedContract?.id === analysisPayload.contract.id
+        || explicitSymbol.toLowerCase() === analysisPayload.contract.symbol.trim().toLowerCase(),
+    }
+  }
+
+  const explicitContract = await loadKnownContractById(paths, input.analysis_context?.analysis_contract_id)
+  if (explicitContract) {
+    return {
+      id: explicitContract.id,
+      symbol: explicitContract.symbol,
+      usesAnalysisSessionContract: explicitContract.id === analysisPayload.contract.id,
+    }
+  }
+
+  return {
+    id: analysisPayload.contract.id,
+    symbol: analysisPayload.contract.symbol,
+    usesAnalysisSessionContract: true,
+  }
 }
 
 const buildScreenshotContext = (screenshot: ScreenshotRecord | null) => {
@@ -244,6 +362,9 @@ const buildScreenshotContext = (screenshot: ScreenshotRecord | null) => {
     'Attached screenshot context:',
     `- Kind: ${screenshot.kind}`,
     `- Caption: ${screenshot.caption ?? 'No caption'}`,
+    `- Analysis role: ${screenshot.analysis_role}`,
+    `- Background layer: ${screenshot.background_layer ?? 'n/a'}`,
+    `- Background label: ${screenshot.background_label ?? 'n/a'}`,
     `- File: ${screenshot.file_path}`,
     `- Size: ${screenshot.width} x ${screenshot.height}`,
     'Annotations:',
@@ -251,34 +372,103 @@ const buildScreenshotContext = (screenshot: ScreenshotRecord | null) => {
   ].join('\n')
 }
 
+const buildBackgroundScreenshotContexts = (screenshots: ScreenshotRecord[]) => {
+  if (screenshots.length === 0) {
+    return ''
+  }
+
+  return [
+    'Selected background screenshots:',
+    ...screenshots.map((screenshot, index) => [
+      `- BG${index + 1}: ${screenshot.id}`,
+      `  kind=${screenshot.kind}`,
+      `  layer=${screenshot.background_layer ?? 'custom'}`,
+      `  label=${screenshot.background_label ?? 'untitled'}`,
+      `  caption=${screenshot.caption ?? 'No caption'}`,
+      `  file=${screenshot.file_path}`,
+    ].join(' | ')),
+  ].join('\n')
+}
+
+const mergeUniqueScreenshots = (...groups: ScreenshotRecord[][]) => {
+  const merged = new Map<string, ScreenshotRecord>()
+  for (const group of groups) {
+    for (const screenshot of group) {
+      if (!merged.has(screenshot.id)) {
+        merged.set(screenshot.id, screenshot)
+      }
+    }
+  }
+  return Array.from(merged.values())
+}
+
 const buildPromptPreview = (
   payload: SessionWorkbenchPayload,
   input: {
     prompt_kind: 'market-analysis' | 'trade-review' | 'period-review'
+    period_id?: string
     screenshot_id?: string | null
     trade_id?: string | null
   },
   context?: Parameters<typeof buildMarketAnalysisPrompt>[1],
-  tradeDetail?: TradeDetailPayload | null,
+  options?: {
+    tradeDetail?: TradeDetailPayload | null
+    periodReview?: PeriodReviewPayload | null
+      marketAnalysis?: {
+        analysisPayload?: SessionWorkbenchPayload
+        analysisContractSymbol?: string
+        primaryScreenshot?: ScreenshotRecord | null
+        backgroundScreenshots?: ScreenshotRecord[]
+        mountSessionTitle?: string
+      mountContractSymbol?: string
+      backgroundNoteMd?: string
+    }
+  },
 ) => {
   const basePrompt = input.prompt_kind === 'trade-review'
-    ? buildTradeReviewPrompt(tradeDetail ?? (() => {
+    ? buildTradeReviewPrompt(options?.tradeDetail ?? (() => {
       throw new Error('trade-review 缺少 trade detail 上下文。')
     })(), context)
     : input.prompt_kind === 'period-review'
-      ? buildPeriodReviewPrompt([payload.session.title], context)
-      : buildMarketAnalysisPrompt(payload, context)
+      ? buildPeriodReviewPrompt(options?.periodReview ?? (() => {
+        throw new Error('period-review 缺少 period review 上下文。')
+      })(), context)
+      : buildMarketAnalysisPrompt(options?.marketAnalysis?.analysisPayload ?? payload, context, {
+        mount_session_title: options?.marketAnalysis?.mountSessionTitle ?? payload.session.title,
+        mount_contract_symbol: options?.marketAnalysis?.mountContractSymbol ?? payload.contract.symbol,
+        analysis_session_title: options?.marketAnalysis?.analysisPayload?.session.title ?? payload.session.title,
+        analysis_contract_symbol: options?.marketAnalysis?.analysisContractSymbol
+          ?? options?.marketAnalysis?.analysisPayload?.contract.symbol
+          ?? payload.contract.symbol,
+        primary_screenshot: options?.marketAnalysis?.primaryScreenshot ?? null,
+        background_screenshots: (options?.marketAnalysis?.backgroundScreenshots ?? []).map((screenshot) => ({
+          id: screenshot.id,
+          kind: screenshot.kind,
+          caption: screenshot.caption,
+          background_layer: screenshot.background_layer,
+          background_label: screenshot.background_label,
+          session_title: options?.marketAnalysis?.analysisPayload?.session.title ?? payload.session.title,
+          contract_symbol: options?.marketAnalysis?.analysisPayload?.contract.symbol ?? payload.contract.symbol,
+        })),
+        background_note_md: options?.marketAnalysis?.backgroundNoteMd ?? '',
+      })
 
-  if (!input.screenshot_id || input.prompt_kind === 'trade-review') {
+  if (!input.screenshot_id || input.prompt_kind !== 'market-analysis') {
     return basePrompt
   }
 
-  const screenshot = payload.screenshots.find((item) => item.id === input.screenshot_id)
+  const screenshot = options?.marketAnalysis?.primaryScreenshot
+    ?? payload.screenshots.find((item) => item.id === input.screenshot_id)
   if (!screenshot) {
     throw new Error(`当前 Session 中未找到截图 ${input.screenshot_id}。`)
   }
 
-  return [basePrompt, buildScreenshotContext(screenshot)].join('\n\n')
+  const sections = [basePrompt, buildScreenshotContext(screenshot)]
+  const backgroundContext = buildBackgroundScreenshotContexts(options?.marketAnalysis?.backgroundScreenshots ?? [])
+  if (backgroundContext) {
+    sections.push(backgroundContext)
+  }
+  return sections.join('\n\n')
 }
 
 const inferTradeState = (
@@ -298,32 +488,46 @@ const inferTradeState = (
 const buildPromptContext = async(
   paths: LocalFirstPaths,
   payload: SessionWorkbenchPayload,
-  input?: { screenshot_id?: string | null, trade_id?: string | null },
+  input?: {
+    screenshot_id?: string | null
+    trade_id?: string | null
+    analysis_contract_id?: string | null
+    analysis_contract_symbol?: string | null
+    uses_analysis_session_contract?: boolean
+  },
 ) => {
   const scopeTrade = resolveScopedTrade(payload, input?.trade_id, input?.screenshot_id)
+  const tradeContext = compactText(scopeTrade?.thesis ?? payload.panels.my_realtime_view ?? payload.session.context_focus ?? '')
+  const analysisContractSymbol = normalizeContractSymbol(input?.analysis_contract_symbol) || payload.contract.symbol
+  const analysisContractId = input?.analysis_contract_id ?? null
+  const useSessionScopedRuntime = input?.uses_analysis_session_contract ?? (analysisContractId === payload.contract.id)
   const [runtime, activeAnchors, similarCases] = await Promise.all([
     getApprovedKnowledgeRuntime(paths, {
-      contract_scope: payload.contract.symbol,
+      contract_scope: analysisContractSymbol,
       tags: payload.session.tags,
       trade_state: inferTradeState(payload, input),
       context_tags: payload.session.tags,
       limit: 6,
     }),
-    buildActiveAnchorRuntimeSummary(paths, {
-      contract_id: payload.contract.id,
-      session_id: payload.session.id,
-      trade_id: scopeTrade?.id ?? null,
-      status: 'active',
-      limit: 4,
-    }),
-    recallSimilarCases(paths, {
-      session_id: payload.session.id,
-      contract_id: payload.contract.id,
-      timeframe_scope: payload.period.kind,
-      semantic_tags: payload.session.tags,
-      trade_context: scopeTrade?.thesis ?? payload.panels.my_realtime_view,
-      limit: 3,
-    }),
+    analysisContractId
+      ? buildActiveAnchorRuntimeSummary(paths, {
+        contract_id: analysisContractId,
+        session_id: useSessionScopedRuntime ? payload.session.id : null,
+        trade_id: useSessionScopedRuntime ? scopeTrade?.id ?? null : null,
+        status: 'active',
+        limit: 4,
+      })
+      : Promise.resolve({ anchors: [] }),
+    analysisContractId
+      ? recallSimilarCases(paths, {
+        session_id: useSessionScopedRuntime ? payload.session.id : undefined,
+        contract_id: analysisContractId,
+        timeframe_scope: payload.period.kind,
+        semantic_tags: payload.session.tags,
+        trade_context: tradeContext.length > 0 ? tradeContext : '待补充',
+        limit: 3,
+      })
+      : Promise.resolve({ hits: [] }),
   ])
 
   return {
@@ -332,7 +536,7 @@ const buildPromptContext = async(
       summary: hit.summary,
       card_type: hit.card_type,
       match_reasons: [
-        `contract=${payload.contract.symbol}`,
+        `contract=${analysisContractSymbol}`,
         payload.session.tags.length > 0 ? `session_tags=${payload.session.tags.join(', ')}` : 'session_tags=none',
       ],
     })),
@@ -379,13 +583,47 @@ const buildTradeReviewMarkdown = (
   analysis.deep_analysis_md,
 ].join('\n')
 
+const buildPeriodReviewMarkdown = (
+  providerLabel: string,
+  analysis: PeriodReviewDraft,
+) => [
+  `# ${providerLabel} ${promptKindTitle['period-review']}`,
+  '',
+  '## 摘要',
+  '',
+  analysis.summary_short,
+  '',
+  '## 优势模式',
+  '',
+  ...analysis.strengths.map((item) => `- ${item}`),
+  '',
+  '## 错误模式',
+  '',
+  ...analysis.mistakes.map((item) => `- ${item}`),
+  '',
+  '## 重复模式',
+  '',
+  ...analysis.recurring_patterns.map((item) => `- ${item}`),
+  '',
+  '## 行动项',
+  '',
+  ...analysis.action_items.map((item) => `- ${item}`),
+  '',
+  '## 深度分析',
+  '',
+  analysis.deep_analysis_md,
+].join('\n')
+
 const buildAiContentMarkdown = (
   providerLabel: string,
   promptKind: 'market-analysis' | 'trade-review' | 'period-review',
-  analysis: AiAnalysisDraft | TradeReviewDraft,
+  analysis: AiAnalysisDraft | TradeReviewDraft | PeriodReviewDraft,
 ) => {
   if (promptKind === 'trade-review' && isTradeReviewDraft(analysis)) {
     return buildTradeReviewMarkdown(providerLabel, analysis)
+  }
+  if (promptKind === 'period-review' && isPeriodReviewDraft(analysis)) {
+    return buildPeriodReviewMarkdown(providerLabel, analysis)
   }
 
   const marketAnalysis = analysis as AiAnalysisDraft
@@ -418,7 +656,7 @@ const buildAiContentMarkdown = (
 
 const mapStructuredOutputToPersistedAnalysis = (
   promptKind: 'market-analysis' | 'trade-review' | 'period-review',
-  analysis: AiAnalysisDraft | TradeReviewDraft,
+  analysis: AiAnalysisDraft | TradeReviewDraft | PeriodReviewDraft,
 ) => {
   if (promptKind === 'trade-review' && isTradeReviewDraft(analysis)) {
     return {
@@ -432,6 +670,20 @@ const mapStructuredOutputToPersistedAnalysis = (
       summary_short: analysis.summary_short,
       deep_analysis_md: analysis.deep_analysis_md,
       supporting_factors: analysis.what_went_well.slice(0, 4),
+    }
+  }
+  if (promptKind === 'period-review' && isPeriodReviewDraft(analysis)) {
+    return {
+      bias: 'neutral' as const,
+      confidence_pct: 0,
+      reversal_probability_pct: 0,
+      entry_zone: 'period-review',
+      stop_loss: 'period-review',
+      take_profit: 'period-review',
+      invalidation: 'period-review',
+      summary_short: analysis.summary_short,
+      deep_analysis_md: analysis.deep_analysis_md,
+      supporting_factors: analysis.strengths.slice(0, 4),
     }
   }
 
@@ -450,19 +702,56 @@ const resolveTradeReviewAttachments = (detail: TradeDetailPayload) => {
 export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, rawInput: unknown) => {
   const input = RunAiAnalysisInputSchema.parse(rawInput)
   const payload = await getSessionWorkbench(paths, { session_id: input.session_id })
+  const analysisSessionId = input.analysis_context?.analysis_session_id ?? input.session_id
+  const analysisPayload = analysisSessionId === input.session_id
+    ? payload
+    : await getSessionWorkbench(paths, { session_id: analysisSessionId })
+  const analysisContract = await resolveAnalysisContract(paths, analysisPayload, input)
   const scopedTrade = resolveScopedTrade(payload, input.trade_id ?? null, input.screenshot_id ?? null)
+  const primaryScreenshot = input.screenshot_id
+    ? payload.screenshots.find((item) => item.id === input.screenshot_id) ?? null
+    : null
+  const backgroundScreenshots = (input.analysis_context?.background_screenshot_ids ?? []).map((screenshotId) => {
+    const screenshot = analysisPayload.screenshots.find((item) => item.id === screenshotId)
+    if (!screenshot) {
+      throw new Error(`分析 Session 中未找到背景截图 ${screenshotId}。`)
+    }
+    return screenshot
+  })
   const tradeDetail = input.prompt_kind === 'trade-review'
     ? (scopedTrade ? await getTradeDetail(paths, { trade_id: scopedTrade.id }) : null)
+    : null
+  const periodReview = input.prompt_kind === 'period-review'
+    ? await getPeriodReview(paths, { period_id: input.period_id ?? payload.session.period_id })
     : null
   if (input.prompt_kind === 'trade-review' && !tradeDetail) {
     throw new Error('trade-review 必须绑定到一笔真实 Trade。')
   }
 
-  const promptContext = await buildPromptContext(paths, payload, {
-    screenshot_id: input.screenshot_id ?? null,
-    trade_id: scopedTrade?.id ?? null,
+  const promptContext = await buildPromptContext(paths, analysisPayload, {
+    screenshot_id: analysisPayload.session.id === payload.session.id
+      ? input.screenshot_id ?? null
+      : null,
+    trade_id: analysisPayload.session.id === payload.session.id
+      ? scopedTrade?.id ?? null
+      : null,
+    analysis_contract_id: analysisContract.id,
+    analysis_contract_symbol: analysisContract.symbol,
+    uses_analysis_session_contract: analysisContract.usesAnalysisSessionContract,
   })
-  const promptPreview = buildPromptPreview(payload, input, promptContext, tradeDetail)
+  const promptPreview = buildPromptPreview(payload, input, promptContext, {
+    tradeDetail,
+    periodReview,
+    marketAnalysis: {
+      analysisPayload,
+      analysisContractSymbol: analysisContract.symbol,
+      primaryScreenshot,
+      backgroundScreenshots,
+      mountSessionTitle: payload.session.title,
+      mountContractSymbol: payload.contract.symbol,
+      backgroundNoteMd: input.analysis_context?.background_note_md?.trim() ?? '',
+    },
+  })
   const promptTemplate = await resolvePromptTemplate(paths, input.prompt_kind)
   const providerConfigs = await mergeProviderConfigs(paths, env)
   const providerConfig = providerConfigs.find((config) => config.provider === input.provider)
@@ -485,21 +774,48 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
   }
 
   const providerSecret = await resolveProviderSecret(paths, env, input.provider)
-  const adapterResult = await adapter.runAnalysis({
+  let adapterResult
+  try {
+    adapterResult = await adapter.runAnalysis({
     config: providerConfig,
     env,
     input,
     paths,
-    payload,
+    payload: {
+      ...analysisPayload,
+      screenshots: mergeUniqueScreenshots(
+        analysisPayload.screenshots,
+        primaryScreenshot ? [primaryScreenshot] : [],
+      ),
+    },
     promptPreview,
     promptTemplate,
     providerSecret,
     attachment_screenshot_ids: input.prompt_kind === 'trade-review'
       ? resolveTradeReviewAttachments(tradeDetail!)
-      : input.screenshot_id
-        ? [input.screenshot_id]
+      : input.prompt_kind === 'market-analysis'
+        ? [...new Set([
+          ...(primaryScreenshot ? [primaryScreenshot.id] : []),
+          ...backgroundScreenshots.map((screenshot) => screenshot.id),
+        ])]
         : [],
   })
+  } catch (error) {
+    try {
+      await recordAiAnalysisFailure(paths, {
+        session_id: input.session_id,
+        provider: input.provider,
+        model: providerConfig.model,
+        prompt_kind: input.prompt_kind,
+        input_summary: summarizeInput(promptPreview),
+        prompt_preview: promptPreview,
+        failure_reason: error instanceof Error ? error.message : '未知 AI 运行错误。',
+      })
+    } catch {
+      // Keep the original provider error visible even if failure recording also fails.
+    }
+    throw error
+  }
 
   const providerLabel = providerConfig.label
   const persistedAnalysis = mapStructuredOutputToPersistedAnalysis(input.prompt_kind, adapterResult.analysis)
@@ -515,7 +831,11 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
     screenshot_id: input.screenshot_id ?? null,
     trade_id: scopedTrade?.id ?? null,
     event_title: `${providerLabel} ${promptKindTitle[input.prompt_kind]}`,
-    block_title: input.prompt_kind === 'trade-review' ? `${providerLabel} 交易复盘` : `${providerLabel} 摘要`,
+    block_title: input.prompt_kind === 'trade-review'
+      ? `${providerLabel} 交易复盘`
+      : input.prompt_kind === 'period-review'
+        ? `${providerLabel} 周期复盘`
+        : `${providerLabel} 摘要`,
     summary_short: adapterResult.analysis.summary_short,
     content_md: buildAiContentMarkdown(providerLabel, input.prompt_kind, adapterResult.analysis),
     analysis: persistedAnalysis,
@@ -529,7 +849,7 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
       screenshot_id: input.screenshot_id ?? null,
       hits: promptContext.runtime_hits.slice(0, 4).map((hit) => ({
         knowledge_card_id: hit.knowledge_card_id,
-        match_reason_md: `Prompt context injected approved knowledge card "${hit.title}" for ${payload.contract.symbol}.`,
+        match_reason_md: `Prompt context injected approved knowledge card "${hit.title}" for ${analysisContract.symbol}.`,
         relevance_score: 0.75,
       })),
     })
@@ -551,11 +871,54 @@ export const runAiAnalysis = async(paths: LocalFirstPaths, env: AppEnvironment, 
 export const runMockAiAnalysis = async(paths: LocalFirstPaths, rawInput: unknown) => {
   const input = RunMockAiAnalysisInputSchema.parse(rawInput)
   const payload = await getSessionWorkbench(paths, { session_id: input.session_id })
+  const analysisSessionId = input.analysis_context?.analysis_session_id ?? input.session_id
+  const analysisPayload = analysisSessionId === input.session_id
+    ? payload
+    : await getSessionWorkbench(paths, { session_id: analysisSessionId })
+  const analysisContract = await resolveAnalysisContract(paths, analysisPayload, input)
   const scopedTrade = resolveScopedTrade(payload, input.trade_id ?? null, input.screenshot_id ?? null)
+  const primaryScreenshot = input.screenshot_id
+    ? payload.screenshots.find((item) => item.id === input.screenshot_id) ?? null
+    : null
+  const backgroundScreenshots = (input.analysis_context?.background_screenshot_ids ?? []).map((screenshotId) => {
+    const screenshot = analysisPayload.screenshots.find((item) => item.id === screenshotId)
+    if (!screenshot) {
+      throw new Error(`分析 Session 中未找到背景截图 ${screenshotId}。`)
+    }
+    return screenshot
+  })
   const tradeDetail = input.prompt_kind === 'trade-review'
     ? (scopedTrade ? await getTradeDetail(paths, { trade_id: scopedTrade.id }) : null)
     : null
-  const promptPreview = buildPromptPreview(payload, input, undefined, tradeDetail)
+  const periodReview = input.prompt_kind === 'period-review'
+    ? await getPeriodReview(paths, { period_id: input.period_id ?? payload.session.period_id })
+    : null
+  const promptContext = input.prompt_kind === 'market-analysis'
+    ? await buildPromptContext(paths, analysisPayload, {
+      screenshot_id: analysisPayload.session.id === payload.session.id
+        ? input.screenshot_id ?? null
+        : null,
+      trade_id: analysisPayload.session.id === payload.session.id
+        ? scopedTrade?.id ?? null
+        : null,
+      analysis_contract_id: analysisContract.id,
+      analysis_contract_symbol: analysisContract.symbol,
+      uses_analysis_session_contract: analysisContract.usesAnalysisSessionContract,
+    })
+    : undefined
+  const promptPreview = buildPromptPreview(payload, input, promptContext, {
+    tradeDetail,
+    periodReview,
+    marketAnalysis: {
+      analysisPayload,
+      analysisContractSymbol: analysisContract.symbol,
+      primaryScreenshot,
+      backgroundScreenshots,
+      mountSessionTitle: payload.session.title,
+      mountContractSymbol: payload.contract.symbol,
+      backgroundNoteMd: input.analysis_context?.background_note_md?.trim() ?? '',
+    },
+  })
 
   return MockAiRunResultSchema.parse({
     analysis_card: payload.analysis_cards[payload.analysis_cards.length - 1],

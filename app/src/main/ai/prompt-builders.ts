@@ -1,6 +1,7 @@
-import type { SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
+import type { ScreenshotRecord } from '@shared/contracts/content'
+import type { PeriodReviewPayload, SessionWorkbenchPayload, TradeDetailPayload } from '@shared/contracts/workbench'
 
-const buildOutputLanguageRules = () => [
+const buildAnalysisOutputLanguageRules = () => [
   'Output language requirements / 输出语言要求:',
   '- Keep all JSON keys exactly unchanged.',
   '- Keep bias as one of: bullish, bearish, range, neutral.',
@@ -9,6 +10,15 @@ const buildOutputLanguageRules = () => [
   '- Write supporting_factors as short Simplified Chinese phrases.',
   '- Write entry_zone, stop_loss, take_profit, and invalidation in concise Simplified Chinese while preserving symbols and price levels.',
   '- You may keep precise trading terms in English when they are more accurate, such as VWAP, liquidity sweep, opening drive, DOM, footprint, or CPI.',
+].join('\n')
+
+const buildReviewOutputLanguageRules = () => [
+  'Output language requirements / 输出语言要求:',
+  '- Keep all JSON keys exactly unchanged.',
+  '- Write all JSON string values in Simplified Chinese.',
+  '- Write deep_analysis_md in Simplified Chinese markdown.',
+  '- Keep numbers, price levels, symbols, IDs, and dates unchanged when they are part of the supplied evidence.',
+  '- Tie every list item to the supplied structured facts instead of generic trading advice.',
 ].join('\n')
 
 export type PromptKnowledgeContextHit = {
@@ -34,6 +44,25 @@ export type PromptContextEnvelope = {
   approved_knowledge_hits?: PromptKnowledgeContextHit[]
   active_anchors?: PromptActiveAnchorSummary[]
   similar_cases?: PromptSimilarCaseSummary[]
+}
+
+export type MarketAnalysisPromptOptions = {
+  mount_session_title?: string
+  mount_contract_symbol?: string
+  analysis_session_title?: string
+  analysis_contract_symbol?: string
+  primary_screenshot?: Pick<
+    ScreenshotRecord,
+    'id' | 'kind' | 'caption' | 'analysis_role' | 'background_layer' | 'background_label'
+  > | null
+  background_screenshots?: Array<Pick<
+    ScreenshotRecord,
+    'id' | 'kind' | 'caption' | 'background_layer' | 'background_label'
+  > & {
+    session_title?: string
+    contract_symbol?: string
+  }>
+  background_note_md?: string
 }
 
 export type SuggestionPromptContextInput = {
@@ -139,10 +168,35 @@ export const buildSuggestionPromptContextSection = (
 export const buildMarketAnalysisPrompt = (
   payload: SessionWorkbenchPayload,
   context?: PromptContextEnvelope,
+  options: MarketAnalysisPromptOptions = {},
 ) => `
-Session: ${payload.session.title}
-Contract: ${payload.contract.symbol}
+Mount target session: ${options.mount_session_title ?? payload.session.title}
+Mount target contract: ${options.mount_contract_symbol ?? payload.contract.symbol}
+Analysis session: ${options.analysis_session_title ?? payload.session.title}
+Analysis contract: ${options.analysis_contract_symbol ?? payload.contract.symbol}
 Bias: ${payload.session.market_bias}
+
+Primary screenshot:
+${options.primary_screenshot
+    ? [
+      `- id=${options.primary_screenshot.id}`,
+      `- kind=${options.primary_screenshot.kind}`,
+      `- caption=${options.primary_screenshot.caption ?? 'No caption'}`,
+      `- role=${options.primary_screenshot.analysis_role}`,
+      options.primary_screenshot.analysis_role === 'background'
+        ? `- background=${options.primary_screenshot.background_layer ?? 'custom'} / ${options.primary_screenshot.background_label ?? 'untitled'}`
+        : '- background=none',
+    ].join('\n')
+    : '- No explicit primary screenshot metadata was supplied.'}
+
+Background context:
+${options.background_screenshots && options.background_screenshots.length > 0
+    ? options.background_screenshots.map((item, index) =>
+      `- BG${index + 1}: id=${item.id} | layer=${item.background_layer ?? 'custom'} | label=${item.background_label ?? 'untitled'} | session=${item.session_title ?? payload.session.title} | contract=${item.contract_symbol ?? payload.contract.symbol} | kind=${item.kind} | caption=${item.caption ?? 'No caption'}`).join('\n')
+    : '- No explicit background screenshot was selected for this run.'}
+
+Background note:
+${options.background_note_md?.trim() || 'No extra background note.'}
 
 User realtime view:
 ${payload.panels.my_realtime_view}
@@ -156,7 +210,7 @@ ${payload.events.map((event) => `- ${event.occurred_at}: ${event.title} | ${even
 ${buildKnowledgeAndAnchorContextSection(context)}
 ${buildSimilarCaseContextSection(context)}
 
-${buildOutputLanguageRules()}
+${buildAnalysisOutputLanguageRules()}
 `.trim()
 
 export const buildTradeReviewPrompt = (
@@ -211,18 +265,65 @@ ${detail.trade.status === 'closed'
 ${buildKnowledgeAndAnchorContextSection(context)}
 ${buildSimilarCaseContextSection(context)}
 
-${buildOutputLanguageRules()}
+${buildReviewOutputLanguageRules()}
 `.trim()
 
 export const buildPeriodReviewPrompt = (
-  sessionTitles: string[],
+  payload: PeriodReviewPayload,
   context?: PromptContextEnvelope,
 ) => `
-Review the following sessions:
-${sessionTitles.map((title) => `- ${title}`).join('\n')}
+Period review for ${payload.contract.symbol} ${payload.period_rollup.period.label}
+
+Structured period facts:
+- Period key: ${payload.period_rollup.period_key}
+- Period scope marker: [period_key=${payload.period_rollup.period_key}]
+- Range: ${payload.period_rollup.period.start_at} -> ${payload.period_rollup.period.end_at}
+- Sessions: ${payload.sessions.length}
+- Trades: ${payload.period_rollup.stats.trade_count}
+- Resolved trades: ${payload.period_rollup.stats.resolved_trade_count}
+- Pending trades: ${payload.period_rollup.stats.pending_trade_count}
+- Canceled trades: ${payload.period_rollup.stats.canceled_trade_count}
+- Net pnl_r: ${payload.period_rollup.stats.total_pnl_r}
+- Avg pnl_r: ${payload.period_rollup.stats.avg_pnl_r ?? 'pending'}
+- Win rate: ${payload.period_rollup.stats.win_rate_pct ?? 'pending'}%
+- Avg holding minutes: ${payload.period_rollup.stats.avg_holding_minutes ?? 'pending'}
+- Plan adherence avg: ${payload.period_rollup.stats.plan_adherence_avg_pct ?? 'pending'}%
+- AI alignment avg: ${payload.period_rollup.stats.ai_alignment_avg_pct ?? 'pending'}%
+
+Setup leaderboard:
+${payload.setup_leaderboard.length > 0
+    ? payload.setup_leaderboard.slice(0, 4).map((entry, index) =>
+      `- Setup ${index + 1}: ${entry.label} | sample=${entry.sample_count} | win_rate=${entry.win_rate_pct ?? 'pending'}% | avg_r=${entry.avg_r ?? 'pending'} | plan=${entry.discipline_avg_pct ?? 'pending'}% | ai_align=${entry.ai_alignment_pct ?? 'pending'}%`).join('\n')
+    : '- No setup leaderboard is available for this period.'}
+
+Mistake tags:
+${payload.period_rollup.tag_summary.filter((tag) => tag.category === 'mistake').slice(0, 5).map((tag, index) =>
+    `- M${index + 1}: ${tag.label} | source=${tag.source} | count=${tag.count}`).join('\n') || '- No mistake tags were aggregated.'}
+
+Best trade samples:
+${payload.trade_metrics
+    .filter((metric) => payload.period_rollup.best_trade_ids.includes(metric.trade_id))
+    .slice(0, 3)
+    .map((metric, index) =>
+      `- Best ${index + 1}: trade=${metric.trade_id} | session=${metric.session_title} | result=${metric.result_label} | pnl_r=${metric.pnl_r ?? 'pending'} | plan=${metric.plan_adherence_score ?? 'pending'}% | thesis=${metric.thesis_excerpt}`)
+    .join('\n') || '- No best-trade sample is available.'}
+
+Worst trade samples:
+${payload.trade_metrics
+    .filter((metric) => payload.period_rollup.worst_trade_ids.includes(metric.trade_id))
+    .slice(0, 3)
+    .map((metric, index) =>
+      `- Worst ${index + 1}: trade=${metric.trade_id} | session=${metric.session_title} | result=${metric.result_label} | pnl_r=${metric.pnl_r ?? 'pending'} | plan=${metric.plan_adherence_score ?? 'pending'}% | thesis=${metric.thesis_excerpt}`)
+    .join('\n') || '- No worst-trade sample is available.'}
+
+Actionable feedback already derived from local evidence:
+${payload.feedback_items.slice(0, 4).map((item) => `- ${item.title}: ${truncate(item.summary, 140)}`).join('\n') || '- No local feedback item is available.'}
+
+Existing period notes:
+${payload.content_blocks.slice(0, 3).map((block, index) => `- Note ${index + 1}: ${truncate(block.title, 48)} | ${truncate(block.content_md, 180)}`).join('\n') || '- No period note block is attached.'}
 
 ${buildKnowledgeAndAnchorContextSection(context)}
 ${buildSimilarCaseContextSection(context)}
 
-${buildOutputLanguageRules()}
+${buildReviewOutputLanguageRules()}
 `.trim()

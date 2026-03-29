@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { translateAnnotationSemantic } from '@app/ui/display-text'
 import type { AnnotationRecord } from '@shared/contracts/content'
 
 type AnnotationMetadataEditorProps = {
@@ -88,7 +89,7 @@ export const AnnotationMetadataEditor = ({
         >
           <option value="">未指定</option>
           {semanticOptions.map((option) => (
-            <option key={option} value={option}>{option}</option>
+            <option key={option} value={option}>{translateAnnotationSemantic(option)}</option>
           ))}
         </select>
       </label>

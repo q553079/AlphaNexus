@@ -57,3 +57,8 @@ Implementation should follow the approved plan instead of improvising broad rewr
 - 2026-03-27: [P2 knowledge and context input closure](plans/2026-03-27-p2-knowledge-context-input-closure.md)
 - 2026-03-27: [P3 trade loop closure](plans/2026-03-27-p3-trade-loop-closure.md)
 - 2026-03-27: [P5 stability, UX, and AI quality hardening](plans/2026-03-27-p5-stability-ux-ai-quality.md)
+- 2026-03-27: [P4/P5 closure hardening](plans/2026-03-27-p4-p5-closure-hardening.md)
+- 2026-03-27: [Period catalog backfill and scope hardening](plans/2026-03-27-period-catalog-backfill.md)
+- 2026-03-27: [Capture AI context v1](plans/2026-03-27-capture-ai-context-v1.md)
+- 2026-03-28: [Session workbench OneNote-first layout](plans/2026-03-28-session-workbench-onenote-layout.md)
+- 2026-03-28: [Screenshot AI thread and attachments](plans/2026-03-28-screenshot-ai-thread-attachments.md)

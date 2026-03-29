@@ -1,3 +1,4 @@
+import { translateRuleSeverity } from '@app/ui/display-text'
 import type { RuleRollupEntry } from '@shared/contracts/evaluation'
 
 type RuleRollupPanelProps = {
@@ -17,20 +18,20 @@ export const RuleRollupPanel = ({ items }: RuleRollupPanelProps) => {
           <p>{item.summary}</p>
           <div className="key-value-grid">
             <div>
-              <dt>Matched</dt>
+              <dt>命中数</dt>
               <dd>{item.match_count}</dd>
             </div>
             <div>
-              <dt>Total</dt>
+              <dt>总数</dt>
               <dd>{item.total_count}</dd>
             </div>
             <div>
-              <dt>Rate</dt>
+              <dt>命中率</dt>
               <dd>{item.match_rate_pct !== null ? `${item.match_rate_pct}%` : '暂无'}</dd>
             </div>
             <div>
-              <dt>Severity</dt>
-              <dd>{item.severity}</dd>
+              <dt>严重度</dt>
+              <dd>{translateRuleSeverity(item.severity)}</dd>
             </div>
           </div>
           <div className="action-row">

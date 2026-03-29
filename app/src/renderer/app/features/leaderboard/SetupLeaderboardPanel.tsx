@@ -6,7 +6,7 @@ type SetupLeaderboardPanelProps = {
 
 export const SetupLeaderboardPanel = ({ entries }: SetupLeaderboardPanelProps) => {
   if (entries.length === 0) {
-    return <div className="empty-state">当前没有 setup leaderboard 数据。</div>
+    return <div className="empty-state">当前没有形态排行数据。</div>
   }
 
   return (
@@ -16,25 +16,25 @@ export const SetupLeaderboardPanel = ({ entries }: SetupLeaderboardPanelProps) =
           <strong>{entry.label}</strong>
           <div className="key-value-grid">
             <div>
-              <dt>Samples</dt>
+              <dt>样本数</dt>
               <dd>{entry.sample_count}</dd>
             </div>
             <div>
-              <dt>Win Rate</dt>
+              <dt>胜率</dt>
               <dd>{entry.win_rate_pct !== null ? `${entry.win_rate_pct}%` : '暂无'}</dd>
             </div>
             <div>
-              <dt>Avg R</dt>
+              <dt>平均 R</dt>
               <dd>{entry.avg_r !== null ? entry.avg_r : '暂无'}</dd>
             </div>
             <div>
-              <dt>Discipline</dt>
+              <dt>纪律度</dt>
               <dd>{entry.discipline_avg_pct !== null ? `${entry.discipline_avg_pct}%` : '暂无'}</dd>
             </div>
           </div>
           <div className="action-row">
             <span className="status-pill">
-              AI alignment {entry.ai_alignment_pct !== null ? `${entry.ai_alignment_pct}%` : '暂无'}
+              AI 一致度 {entry.ai_alignment_pct !== null ? `${entry.ai_alignment_pct}%` : '暂无'}
             </span>
           </div>
         </article>

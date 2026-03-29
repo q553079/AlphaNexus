@@ -1,3 +1,4 @@
+import { translateFeedbackPriority, translateFeedbackType } from '@app/ui/display-text'
 import type { FeedbackItem } from '@shared/contracts/evaluation'
 
 type FeedbackListProps = {
@@ -20,8 +21,8 @@ export const FeedbackList = ({
           <strong>{item.title}</strong>
           <p>{item.summary}</p>
           <div className="action-row">
-            <span className="status-pill">{item.type}</span>
-            <span className="status-pill">{item.priority}</span>
+            <span className="status-pill">{translateFeedbackType(item.type)}</span>
+            <span className="status-pill">{translateFeedbackPriority(item.priority)}</span>
             {item.evidence.slice(0, 3).map((evidence) => (
               <span className="badge" key={evidence}>{evidence}</span>
             ))}

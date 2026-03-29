@@ -1,3 +1,4 @@
+import { translateAnnotationSemantic, translateAnnotationShape } from '@app/ui/display-text'
 import type { AnnotationInspectorItem } from './types'
 
 type AnchorAnnotationInspectorProps = {
@@ -23,8 +24,8 @@ export const AnchorAnnotationInspector = ({
         <article className="anchor-inspector__item" key={item.key}>
           <div className="anchor-inspector__meta">
             <span className="badge">{item.label}</span>
-            <span className="status-pill">{item.semantic_type}</span>
-            <span className="status-pill">{item.annotation.shape}</span>
+            <span className="status-pill">{translateAnnotationSemantic(item.semantic_type)}</span>
+            <span className="status-pill">{translateAnnotationShape(item.annotation.shape)}</span>
           </div>
           <div className="anchor-inspector__actions">
             <button

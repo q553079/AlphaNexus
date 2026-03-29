@@ -1,5 +1,10 @@
 import type { CaptureSelection } from '@shared/capture/contracts'
 import type { DraftAnnotation, PendingDraftAnnotation } from '@app/features/annotation/annotation-types'
+import {
+  decodeBrushGeometry,
+  getFibRetracementLevels,
+  normalizeAnnotationBounds,
+} from '@app/features/annotation/annotation-geometry'
 
 type AnnotationLike = PendingDraftAnnotation | DraftAnnotation
 
@@ -84,6 +89,28 @@ const drawAnnotation = (
     return
   }
 
+  if (annotation.shape === 'fib_retracement') {
+    const bounds = normalizeAnnotationBounds(annotation)
+    const levels = getFibRetracementLevels(bounds.y1, bounds.y2)
+    context.save()
+    context.font = '500 14px sans-serif'
+    context.fillStyle = annotation.color
+    context.strokeStyle = annotation.color
+    context.lineWidth = Math.max(annotation.stroke_width, 1.8)
+    levels.forEach((level, index) => {
+      context.globalAlpha = index === 0 || index === levels.length - 1 ? 0.9 : 0.68
+      context.beginPath()
+      context.moveTo(bounds.x1, level.y)
+      context.lineTo(bounds.x2, level.y)
+      context.stroke()
+      context.fillText(`${Math.round(level.ratio * 100)}%`, bounds.x2 + 10, level.y + 4)
+    })
+    context.restore()
+    drawLabel(context, annotation, bounds.x1 + 10, bounds.y1 - 8)
+    context.restore()
+    return
+  }
+
   if (annotation.shape === 'line' || annotation.shape === 'arrow') {
     context.beginPath()
     context.moveTo(x1, y1)
@@ -108,6 +135,21 @@ const drawAnnotation = (
     }
 
     drawLabel(context, annotation, x1 + 10, y1 - 8)
+    context.restore()
+    return
+  }
+
+  if (annotation.shape === 'brush') {
+    const points = decodeBrushGeometry(annotation.text)
+    if (points.length >= 2) {
+      context.beginPath()
+      context.moveTo(points[0].x, points[0].y)
+      for (let index = 1; index < points.length; index += 1) {
+        context.lineTo(points[index].x, points[index].y)
+      }
+      context.stroke()
+    }
+    drawLabel(context, annotation, annotation.x1 + 10, annotation.y1 - 8)
     context.restore()
     return
   }

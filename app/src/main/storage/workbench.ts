@@ -1,11 +1,12 @@
 import type { LocalFirstPaths } from '@main/app-shell/paths'
 import { getDatabase } from '@main/db/connection'
-import { getFirstId } from '@main/db/repositories/workbench-utils'
+import { ensurePeriodCatalogCoverage, resolveDefaultReviewPeriodId } from '@main/period/period-record-service'
 import {
   addToTrade,
   cancelTrade,
   closeTrade,
   createWorkbenchNoteBlock,
+  createFailedAiRun,
   createAiAnalysisArtifacts,
   ensureCurrentContext,
   getCurrentContext,
@@ -88,7 +89,8 @@ export const fetchTradeDetail = async(paths: LocalFirstPaths, tradeId?: string) 
 
 export const fetchPeriodReview = async(paths: LocalFirstPaths, periodId?: string) => {
   const db = await getDatabase(paths)
-  const resolvedPeriodId = periodId ?? getFirstId(db, 'periods', 'start_at')
+  ensurePeriodCatalogCoverage(db)
+  const resolvedPeriodId = periodId ?? resolveDefaultReviewPeriodId(db)
   const insights = await getPeriodReviewInsights(paths, resolvedPeriodId)
   return loadPeriodReview(db, resolvedPeriodId, insights)
 }
@@ -237,4 +239,12 @@ export const saveAiAnalysisArtifacts = async(
 ) => {
   const db = await getDatabase(paths)
   return createAiAnalysisArtifacts(db, input)
+}
+
+export const saveAiAnalysisFailure = async(
+  paths: LocalFirstPaths,
+  input: Parameters<typeof createFailedAiRun>[1],
+) => {
+  const db = await getDatabase(paths)
+  return createFailedAiRun(db, input)
 }

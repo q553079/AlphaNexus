@@ -1,7 +1,8 @@
 import type { CurrentTargetOption, SessionWorkbenchPayload } from '@shared/contracts/workbench'
-import { CurrentContextBar } from '@app/features/context/CurrentContextBar'
 import { TargetSelector } from '@app/features/context/TargetSelector'
-import { formatDateTime } from '@app/ui/display-text'
+import {
+  translateSessionDisplayTitle,
+} from '@app/ui/display-text'
 
 type SessionWorkbenchHeaderProps = {
   busy: boolean
@@ -20,17 +21,13 @@ export const SessionWorkbenchHeader = ({
 }: SessionWorkbenchHeaderProps) => (
   <header className="session-workbench__header">
     <div className="session-workbench__header-main">
-      <p className="eyebrow">{payload.contract.symbol}</p>
-      <h2>{payload.session.title}</h2>
-      <p className="session-workbench__context">{payload.session.context_focus}</p>
-      <p className="session-workbench__context-meta">
-        Session {payload.session.id} · {formatDateTime(payload.session.created_at)}
-      </p>
-      <CurrentContextBar payload={payload} />
+      <p className="session-workbench__header-kicker">{payload.contract.symbol} · 工作过程</p>
+      <h2>{translateSessionDisplayTitle(payload.session.title)}</h2>
     </div>
     <div className="session-workbench__header-side">
       <TargetSelector
         busy={busy}
+        label="当前挂载"
         onSelect={onSelectTarget}
         selectedOptionId={payload.target_option_groups.current[0]?.id ?? payload.target_options.find((option) => option.is_current)?.id ?? null}
         targetPayload={{
@@ -38,6 +35,7 @@ export const SessionWorkbenchHeader = ({
           options: payload.target_options,
           groups: payload.target_option_groups,
         }}
+        variant="compact"
       />
       <div className="session-workbench__actions">
         <button className="button is-secondary" disabled={busy} onClick={onRunAnalysis} type="button">运行 AI 分析</button>

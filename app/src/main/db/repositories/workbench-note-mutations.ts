@@ -7,15 +7,18 @@ const standaloneUserEventTypes = new Set(['observation', 'thesis', 'review'])
 
 const loadEventRow = (db: Database.Database, eventId: string) =>
   db.prepare(`
-    SELECT id, event_type, screenshot_id, ai_run_id
+    SELECT id, session_id, trade_id, event_type, screenshot_id, ai_run_id, deleted_at
     FROM events
     WHERE id = ?
     LIMIT 1
   `).get(eventId) as {
     id: string
+    session_id: string
+    trade_id: string | null
     event_type: string
     screenshot_id: string | null
     ai_run_id: string | null
+    deleted_at: string | null
   } | undefined
 
 const loadActiveEventBlocks = (db: Database.Database, eventId: string) =>
@@ -124,13 +127,24 @@ export const createWorkbenchNoteBlock = (
   input: {
     session_id: string
     trade_id: string | null
+    event_id?: string | null
     title: string
     content_md: string
   },
 ) => {
   const timestamp = currentIso()
   const blockId = createId('block')
-  const eventId = insertStandaloneContentEvent(db, {
+  const existingEvent = input.event_id ? loadEventRow(db, input.event_id) : null
+  if (input.event_id) {
+    if (!existingEvent || existingEvent.deleted_at) {
+      throw new Error('当前事件图不存在，无法把说明挂到这条事件上。')
+    }
+    if (existingEvent.session_id !== input.session_id) {
+      throw new Error('事件图说明必须挂到同一个工作过程下。')
+    }
+  }
+
+  const eventId = existingEvent?.id ?? insertStandaloneContentEvent(db, {
     session_id: input.session_id,
     trade_id: input.trade_id,
     event_type: 'observation',
@@ -139,6 +153,9 @@ export const createWorkbenchNoteBlock = (
     occurred_at: timestamp,
     content_block_ids: [blockId],
   })
+  const effectiveTradeId = existingEvent?.trade_id ?? input.trade_id
+  const contextType = existingEvent ? 'event' : effectiveTradeId ? 'trade' : 'session'
+  const contextId = existingEvent?.id ?? effectiveTradeId ?? input.session_id
   const nextSortOrderRow = db.prepare(`
     SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort_order
     FROM content_blocks
@@ -158,9 +175,13 @@ export const createWorkbenchNoteBlock = (
     input.title,
     input.content_md,
     nextSortOrderRow.next_sort_order,
-    input.trade_id ? 'trade' : 'session',
-    input.trade_id ?? input.session_id,
+    contextType,
+    contextId,
   )
+
+  if (existingEvent) {
+    syncEventAfterContentBlockMutation(db, eventId, timestamp)
+  }
 
   return loadContentBlockById(db, blockId)
 }

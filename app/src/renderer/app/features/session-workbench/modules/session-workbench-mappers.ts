@@ -5,6 +5,7 @@ import type {
 } from '@app/features/anchors'
 import type { ComposerSuggestion } from '@app/features/composer/types'
 import type { GroundingHitView } from '@app/features/grounding'
+import type { RunAiAnalysisInput } from '@shared/ai/contracts'
 import type {
   AnnotationSuggestionView,
   AnchorReviewSuggestionView,
@@ -21,11 +22,27 @@ import type {
 import type { ScreenshotRecord } from '@shared/contracts/content'
 
 const analysisProviderPriority: AiProviderConfig['provider'][] = ['openai', 'deepseek', 'anthropic', 'custom-http']
+const imageCapableAnalysisProviderPriority: AiProviderConfig['provider'][] = ['openai', 'custom-http', 'deepseek', 'anthropic']
 
 export const pickPreferredAnalysisProvider = (providers: AiProviderConfig[]) => {
   const available = providers.filter((provider) => provider.enabled && provider.configured)
   return available.sort((left, right) =>
     analysisProviderPriority.indexOf(left.provider) - analysisProviderPriority.indexOf(right.provider))[0] ?? null
+}
+
+export const pickPreferredAnalysisProviderForInput = (
+  providers: AiProviderConfig[],
+  input?: Pick<RunAiAnalysisInput, 'analysis_context'>,
+) => {
+  const available = providers.filter((provider) => provider.enabled && provider.configured)
+  const needsInlineImages = Boolean(
+    input?.analysis_context?.attachments?.some((attachment) =>
+      attachment.kind === 'image' && typeof attachment.data_url === 'string' && attachment.data_url.length > 0),
+  )
+  const priority = needsInlineImages ? imageCapableAnalysisProviderPriority : analysisProviderPriority
+  return available
+    .slice()
+    .sort((left, right) => priority.indexOf(left.provider) - priority.indexOf(right.provider))[0] ?? null
 }
 
 export const toDraftAnnotation = (annotation: ScreenshotRecord['annotations'][number]): DraftAnnotation => ({

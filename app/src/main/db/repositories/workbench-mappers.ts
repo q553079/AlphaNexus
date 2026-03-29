@@ -41,6 +41,21 @@ export const mapScreenshot = (
   deletedAnnotationsByShot: Map<string, AnnotationRecord[]> = new Map(),
 ) => ScreenshotSchema.parse({
   ...row,
+  analysis_role: typeof row.analysis_role === 'string' && row.analysis_role.length > 0
+    ? row.analysis_role
+    : 'event',
+  analysis_session_id: typeof row.analysis_session_id === 'string' && row.analysis_session_id.length > 0
+    ? row.analysis_session_id
+    : null,
+  background_layer: typeof row.background_layer === 'string' && row.background_layer.length > 0
+    ? row.background_layer
+    : null,
+  background_label: typeof row.background_label === 'string' && row.background_label.trim().length > 0
+    ? row.background_label
+    : null,
+  background_note_md: typeof row.background_note_md === 'string'
+    ? row.background_note_md
+    : '',
   raw_file_path: typeof row.raw_file_path === 'string' && row.raw_file_path.length > 0
     ? row.raw_file_path
     : String(row.file_path),

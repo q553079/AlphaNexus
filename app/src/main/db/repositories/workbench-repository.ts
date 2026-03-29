@@ -29,6 +29,9 @@ export {
   updateWorkbenchNoteBlock,
 } from '@main/db/repositories/workbench-note-mutations'
 export {
+  createFailedAiRun,
+} from '@main/db/repositories/workbench-ai-mutations'
+export {
   addToTrade,
   cancelTrade,
   closeTrade,
